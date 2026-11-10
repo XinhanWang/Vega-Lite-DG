@@ -10,7 +10,8 @@ datasets, ``source_row_id`` references, and a reserved decorative layer name.
 ``build_pair`` fits the plotting domain around observations and uncertainty before
 rendering. ``normalize`` retains scientific semantics without layout domains or
 pixel geometry. The legacy ``build_geometry_pair`` remains available for native
-geometry audits. The adapter has no third-party runtime dependencies.
+geometry audits. Geometry conversion has no third-party dependencies; presentation
+reads font metadata through the already-installed Matplotlib dependency.
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -703,9 +704,11 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
 def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     """Render-ready full specification and minimal semantic training target."""
     from text_layout import apply_text_layout
+    from presentation import apply_presentation
     full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True)
     full['usermeta']['semantic_labels'] = {key: source[key] for key in ('title', 'x_title', 'y_title')}
-    full = apply_text_layout(full)
+    full = apply_text_layout(apply_presentation(full, cfg))
+    source['presentation'] = copy.deepcopy(full['usermeta']['presentation'])
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     full['usermeta']['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     compact = normalize(full)

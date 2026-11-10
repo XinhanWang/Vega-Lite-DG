@@ -124,7 +124,7 @@ async function loadRuntime(options) {
     if (typeof canvas.registerFont === 'function') for (const font of fonts.files) {
       if (!font.family) continue;
       try {
-        canvas.registerFont(font.file, {family: font.family, ...(font.weight ? {weight: font.weight} : {}), ...(font.style ? {style: font.style} : {})});
+        canvas.registerFont(font.file, {family: font.family, ...(font.weight ? {weight: String(font.weight)} : {}), ...(font.style ? {style: font.style} : {})});
         fonts.canvas_registered.push(font.file);
       } catch (error) { fonts.canvas_registration_errors.push({file: font.file, error: String(error.message || error)}); }
     }
@@ -481,6 +481,16 @@ async function renderVariant(job, variant, runtime, options) {
     const source = fs.readFileSync(job[variant], 'utf8').replace(/^\uFEFF/, '');
     const spec = JSON.parse(source);
     assertInlineResources(spec);
+    const selectedFont = spec.usermeta?.presentation?.font;
+    if (selectedFont?.source === 'font_file') {
+      const files = runtime.provenance.fonts.files.filter(font => path.basename(font.file) === selectedFont.file);
+      if (!files.length) throw new Error(`Selected font is not loaded by the renderer: ${selectedFont.file}. Run bootstrap.py or supply --font-dir.`);
+      if (files.some(font => font.family && font.family !== selectedFont.family)) {
+        throw new Error(`Selected font family differs from fonts.manifest.json: ${selectedFont.file}`);
+      }
+      result.selected_font = {family: selectedFont.family, weight: selectedFont.weight,
+        style: selectedFont.style, files: files.map(font => ({file: font.file, sha256: font.sha256}))};
+    }
     const logger = loggerFor(warnings, errors, runtime.vega);
     const compiled = runtime.vl.compile(spec, {logger}).spec;
     view = new runtime.vega.View(runtime.vega.parse(compiled), {renderer: 'none', loader: blockedLoader, logger, logLevel: runtime.vega.Warn});

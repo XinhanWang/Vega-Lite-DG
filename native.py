@@ -188,7 +188,21 @@ def _axes_snapshot(ax, fig):
             values = list(line.get_ydata())
             if values and all(float(v) == float(values[0]) for v in values):
                 reference_lines.append({"axis": "y", "value": float(values[0])})
+    tick_styles = {}
+    for axis_name, axis in (("x", ax.xaxis), ("y", ax.yaxis)):
+        tick = axis.get_major_ticks()[0]
+        params = axis.get_tick_params(which="major")
+        # Save random render-time choices before the figure is closed. Public
+        # Matplotlib getters avoid consuming RNG or changing upstream rendering.
+        tick_styles[axis_name] = {
+            "direction": params.get("direction", "out"),
+            "length": tick.tick1line.get_markersize(),
+            "width": tick.tick1line.get_markeredgewidth(),
+            "color": tick.tick1line.get_color(),
+            "visible": tick.tick1line.get_visible(),
+        }
     return jsonable({
+        "tick_styles": tick_styles,
         "xlim": ax.get_xlim(), "ylim": ax.get_ylim(),
         "x_inverted": ax.xaxis_inverted(), "y_inverted": ax.yaxis_inverted(),
         "xscale": ax.get_xscale(), "yscale": ax.get_yscale(), "aspect": ax.get_aspect(),
@@ -250,6 +264,8 @@ def generate_native(kind, seed, outdir, controls=None, render=True):
                     if unknown:
                         raise ValueError(f"Unknown style keys: {sorted(unknown)}")
                     actual["style"].update(copy.deepcopy(c["style"]))
+                    if "font_path" in c["style"]:
+                        actual["font_path"] = c["style"]["font_path"]
                 if "hatch" in c:
                     if "hatches" in actual:
                         actual["hatches"] = [c["hatch"]] * actual["n_series"]

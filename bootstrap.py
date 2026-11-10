@@ -44,10 +44,10 @@ def setup_fonts(retries=3, timeout=30):
         fonts = common.ensure_fonts()
     finally:
         common._download_font = original_download
-    from matplotlib.font_manager import FontProperties
+    from presentation import describe_font
     records = []
     for font in fonts:
-        records.append({"file": str(font.relative_to(ROOT)), "family": FontProperties(fname=str(font)).get_name(), "sha256": hashlib.sha256(font.read_bytes()).hexdigest(), "bytes": font.stat().st_size})
+        records.append({"file": str(font.relative_to(ROOT)), **describe_font(font), "sha256": hashlib.sha256(font.read_bytes()).hexdigest(), "bytes": font.stat().st_size})
     manifest = {"vendor": str(VENDOR), "font_count": len(records), "fonts": records}
     (ROOT / "fonts.manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return manifest

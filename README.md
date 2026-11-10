@@ -42,7 +42,7 @@ python pipeline.py generate --config configs/smoke.json --output runs/my_smoke
 python pipeline.py validate --output runs/my_smoke
 ```
 
-`bootstrap.py` 下载并校验项目本地字体，写入 `fonts.manifest.json`，首次执行需要网络。生成和验证使用仓库内固定版本的 VSR 核心源码，不依赖上游完整仓库。Schema 默认从 npm 安装的 Vega-Lite 包读取。
+`bootstrap.py` 下载并校验项目本地字体，写入含字体家族、字重、字形和文件哈希的 `fonts.manifest.json`，首次执行需要网络。升级已有环境后也应执行一次，以刷新字体元数据；已存在的字体不会重复下载。生成和验证使用仓库内固定版本的 VSR 核心源码，不依赖上游完整仓库。Schema 默认从 npm 安装的 Vega-Lite 包读取。
 
 `requirements.txt` 保留已部署环境的精确版本，其中 Pillow 9.0.1 / PyYAML 5.4.1 较旧。新环境若需从源码构建 PyYAML，可先安装 `wheel`、`setuptools`、`Cython<3`，再以 `--no-build-isolation` 安装该版本；系统需具备相应编译器及 Python 开发头文件。已有服务器环境可直接执行下面的生产命令。
 
@@ -72,6 +72,22 @@ python3 pipeline.py validate --output runs/my_reprojected
 ```
 
 `generate` / `reproject` 可用 `--node /path/to/node` 指定 Node；默认优先使用父目录 `.runtime/node`，其次使用 PATH 中的 Node。renderer 的进程数独立于 Python 生成进程数，支持 `--workers`、`--chunk-size`、`--child-timeout-ms`、`--no-resume` 等，细节见 [渲染与语义约定](docs/pipeline-contract.md)。
+
+## 视觉样式多样性
+
+从适配器 2.2.0 起，正常 `generate` 和 `reproject` 默认启用下列样式映射，无需额外开关：
+
+- **字体**：读取 VSR 实际绘图所用的顶层 `font_path`，将字体家族、字重和字形传给标题、坐标轴与图例。顶层缺省时才读取 `style.font_path`。当前字体包包含 16 个文件、9 个家族；文件数不等于家族数。生成控制中的 `style.font_path` 会同时覆盖原生图和 Vega-Lite 图使用的字体。
+- **网格与边框**：保留实线、虚线、点线、颜色、透明度、宽度，以及四侧边框的显示状态。
+- **刻度**：原生绘图时随机选择的朝向、长度、宽度和颜色写入 `config.json` 的 `_render_axes.tick_styles`，随后映射到 Vega-Lite。旧配置未记录这些值时采用显式配置或默认值，无法追溯当时的随机选择。
+- **图例**：保留框线、半透明底色、列数、内外间距、线段长度；图例符号使用各系列实际的线型或点形。保留角落、居中和外置布局；`best` 根据最终坐标范围内的数据占用情况选择角落。
+- **标题**：支持左、中、右对齐及独立的大小、粗细、倾斜和间距。
+
+样式记录位于 `source.json.presentation` / `full.vl.json.usermeta.presentation`，实际渲染使用的字体文件和哈希记录在 `render-report.json` 的 `records[].full.selected_font`。选定字体缺失时会明确失败；请先运行 `bootstrap.py`，或通过 renderer 的 `--font-dir` 提供该文件。跨机器重投影会按文件名在项目字体目录中查找。
+
+样式仅影响完整绘图规格。相同配置的原始数据和 `compact.vl.json` 不因样式映射而改变。长标题、长标签仍自动换行；过大的内部图例会外移以保留完整文字，最终位置及原因写入样式记录。原有的坐标域扩展、误差棒/标记留边和裁切检查继续生效。
+
+Vega-Lite 与 Matplotlib 的字体度量、物理尺寸和布局算法不同，因此不承诺像素级一致。`best` 是确定性的占用启发式；线图图例显示线段及其虚线样式，不复刻 Matplotlib 的“线段加标记”组合。原生 `legend_shadow` 暂无标准 Vega-Lite 图例属性可直接表达，记录为 `not_supported`，不会伪造为已支持。纹理仍使用既有的规则线/符号近似。
 
 ## 配置
 
@@ -129,6 +145,7 @@ runs/my_production/
 | `pipeline.py` | 生成、恢复、重新投影、质量门和训练清单 |
 | `native.py` | 固定上游生成器调用、采样控制与原生审计 |
 | `adapter.py` / `compact.py` | 完整绘图规格与确定性精简标签 |
+| `presentation.py` | 字体、坐标轴、图例等样式映射和来源记录 |
 | `plot_layout.py` / `text_layout.py` | 图元防裁切与长文字布局 |
 | `render.mjs` | 官方编译渲染、场景图审计、子进程隔离及恢复 |
 | `bootstrap.py` | 项目本地字体准备与哈希清单 |
@@ -139,9 +156,11 @@ runs/my_production/
 VSR_TEXT_TEST_MODULES="$PWD/node_modules" python3 -m unittest discover -s tests -v
 ```
 
-执行 SVG 集成测试需要 PATH 中的 Node 版本为 22+，并将 `VSR_TEXT_TEST_MODULES` 指向实际安装的 node_modules；未设置时该集成项跳过。服务器依赖安装在父目录，应使用 `PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" python3 -m unittest discover -s tests -v`。
+执行 SVG 集成测试需要 PATH 中的 Node 版本为 22+，并将 `VSR_TEXT_TEST_MODULES` 指向实际安装的 node_modules；未设置时 SVG 集成项跳过。服务器依赖安装在父目录，应使用 `PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" python3 -m unittest discover -s tests -v`。
 
-2026-11-09 的服务器验证结果：58 项测试通过；九类各 50 个旧候选全部接收，原 21 个裁切拒收样本全部恢复；新种子九类各 3 个样本全部接收。两批共 477 个样本的文字检查通过，绘图区和画布裁切告警均为 0；旧 450 份配置、数据和精简 JSON 逐份相同。这是该版本与这些样本的验证记录，不代表任意未来配置都通过。
+2026-11-10（适配器 2.2.0）的服务器验证结果：67 项测试通过，包括实际 SVG 的字体、图例、虚线、刻度方向和有限布局坐标检查。`runs/production_diverse_v4` 九类各 50 个旧配置重绘后全部接收；`runs/fresh_diverse_v4` 新种子九类各 3 个样本全部接收。477 份 SVG 的字体家族均与选定字体一致，生产集覆盖 9 个家族、16 个字体文件；旧 450 份配置、观察数据和精简 JSON 逐份相同。
+
+原尺寸图及观察数据的裁切检查通过；额外审计 1036 缩放图时有 4 条零值参考线的保守描边包围框触边提示，与旧版相同样本的提示一致，不涉及观察数据。记录在服务器 `diagnostics/style-diversity-v4/delivery/verification.json`。这里的结果只适用于已验证版本和样本，不代表任意未来配置均会通过。
 
 ## Git 管理范围
 

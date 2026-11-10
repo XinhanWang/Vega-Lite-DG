@@ -159,6 +159,11 @@ def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: f
                     # An internal legend cannot request extra outer space.
                     # Keep large legends outside the plot to avoid text loss.
                     legend.update(orient="right", columns=1, rowPadding=max(6, _number(legend.get("rowPadding"), 6)))
+                    legend.pop("legendX", None)
+                    legend.pop("legendY", None)
+                    presentation = result.get("usermeta", {}).get("presentation", {})
+                    if isinstance(presentation.get("legend"), dict):
+                        presentation["legend"].update(chosen="right", columns=1, reason="space_for_complete_legend")
                 if legend.get("title") is not None:
                     legend["title"] = _wrap(legend["title"], max_label_width, _number(legend.get("titleFontSize"), 11))
         for child in node.get("layer", []):
