@@ -75,20 +75,24 @@ def _legend_symbols(full: dict, kind: str, count: int, size: float) -> dict:
     # Use the actual generated marks, including SVG-path markers, rather than a
     # second marker conversion table that could drift from the chart itself.
     properties = []
+    symbol_sizes = []
     for i in range(count):
         marks = {layer.get("name"): layer.get("mark", {}) for layer in full["layer"]}
         if kind.startswith("line") and f"line_{i}" in marks:
             mark = marks[f"line_{i}"]
+            symbol_sizes.append(size ** 2)
             properties.append(("stroke", mark.get("strokeDash", []), mark.get("strokeWidth", 1.8)))
         elif kind.startswith("bar"):
+            symbol_sizes.append(size ** 2)
             properties.append(("square", [], 1))
         else:
             mark = marks.get(f"scatter_{i}", marks.get(f"line_markers_{i}", {}))
+            symbol_sizes.append(mark.get("size", 30))
             properties.append((mark.get("shape", "circle"), [], mark.get("strokeWidth", 1)))
     return {"symbolType": _expression([p[0] for p in properties]),
             "symbolDash": _expression([p[1] for p in properties]),
             "symbolStrokeWidth": _expression([p[2] for p in properties]),
-            "symbolSize": size ** 2}
+            "symbolSize": _expression(symbol_sizes)}
 
 
 def _best_corner(full: dict, legend_width: float, legend_height: float) -> str:
@@ -144,8 +148,16 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
     text_color = style.get("text_color", "#222222")
     axes_source = cfg.get("_render_axes", cfg.get("render_axes", {}))
     ticks_source = axes_source.get("tick_styles", {})
+    roles = axes_source.get("text_styles", {})
+    native_legend = axes_source.get("legend")
+    def text_properties(role, prefix=""):
+        if not role:
+            return {}
+        fields = {"font": role["family"], "fontWeight": role["weight"],
+                  "fontStyle": role["style"], "fontSize": role["size"]}
+        return {(prefix + key[0].upper() + key[1:]) if prefix else key: value for key, value in fields.items()}
     audit = result["usermeta"].setdefault("presentation", {})
-    audit.update(version="vsr-presentation/1.0", font=font,
+    audit.update(version="vsr-presentation/2.0", font=font,
                  tick_style_source="native_render" if ticks_source else "configured_or_default",
                  legend_shadow="not_supported" if style.get("legend_shadow") else "not_requested")
     # Matplotlib draws all four spines. A view border avoids painting bottom/left
@@ -153,16 +165,27 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
     border = bool(style.get("spine_visible", True))
     result["config"]["view"].update(stroke=style.get("spine_color", text_color) if border else None,
                                      strokeWidth=style.get("spine_width", 1))
+    # Layered views also receive Vega's built-in "view" style, whose transparent
+    # fill can override config.view -> cell. Explicit view properties win.
+    result["view"] = copy.deepcopy(result["config"]["view"])
     title = result["title"]
     title.update(font=font["family"], fontWeight=cfg.get("title_weight", font["weight"]),
                  fontStyle=cfg.get("title_style", font["style"]),
                  anchor={"left": "start", "center": "middle", "right": "end"}.get(cfg.get("title_loc"), "middle"))
+    title.update(text_properties(roles.get("title")))
+    title["frame"] = "group"
+    audit["text_style_source"] = "native_render" if roles else "configured_or_default"
+    audit["plot_size_source"] = "native_axes_points" if axes_source.get("axes_bbox_bottom_left") else "figure_estimate"
     legend_options = None
     for layer in result["layer"]:
         for axis in ("x", "y"):
             guide = layer.get("encoding", {}).get(axis, {}).get("axis")
             if not isinstance(guide, dict):
                 continue
+            from adapter import _label_expr
+            native_values, native_labels = axes_source.get(f"{axis}ticks"), axes_source.get(f"{axis}ticklabels")
+            if native_values is not None and native_labels is not None and len(native_values) == len(native_labels) and guide.get("values") == native_values:
+                guide.update(labelExpr=_label_expr(native_values, native_labels), labelOverlap=False)
             ticks = ticks_source.get(axis, {})
             length = float(ticks.get("length", style.get("tick_length", 3.5)))
             direction = ticks.get("direction", style.get("tick_direction", "out"))
@@ -179,6 +202,14 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
             # label padding nonnegative so inward ticks cannot pull labels inside.
             guide["tickSize"] = {"expr": str(-length)} if direction == "in" else length
             guide["labelPadding"] = float(style.get("tick_pad", 3)) + (length if direction == "in" else 0)
+            axis_roles = roles.get(axis, {})
+            guide.update(text_properties(axis_roles.get("label"), "label"))
+            guide.update(text_properties(axis_roles.get("title"), "title"))
+            if axis_roles.get("label"):
+                guide["labelAngle"] = -float(axis_roles["label"]["rotation"])
+                guide["labelAlign"] = axis_roles["label"]["align"]
+            if axis in axes_source.get("grid_visible", {}):
+                guide["grid"] = bool(axes_source["grid_visible"][axis])
         color = layer.get("encoding", {}).get("color", {})
         legend = color.get("legend")
         if not isinstance(legend, dict):
@@ -212,6 +243,13 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
             if style.get("legend_outside") or lw > full["width"] * 0.85 or lh > full["height"] * 0.85:
                 orient = "right"
                 reason = "source_outside" if style.get("legend_outside") else "space_for_complete_legend"
+            elif native_legend:
+                anchor = native_legend["anchor"]
+                orient = anchor if anchor in {"top-right", "top-left", "bottom-right", "bottom-left"} else "none"
+                if orient == "none":
+                    x, y, _, _ = native_legend["bbox_axes_top_left"]
+                    legend_options.update(legendX=x * full["width"], legendY=y * full["height"])
+                reason = "native_resolved_anchor"
             elif loc == "best":
                 orient = _best_corner(full, lw, lh)
                 reason = "least_occupied_corner"
@@ -223,7 +261,30 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
                 xpos = 0 if loc == "center left" else full["width"] - lw if loc in {"center right", "right"} else (full["width"] - lw) / 2
                 ypos = 0 if loc == "upper center" else full["height"] - lh if loc == "lower center" else (full["height"] - lh) / 2
                 legend_options.update(legendX=max(0, xpos), legendY=max(0, ypos))
+            if native_legend:
+                legend_options.update(text_properties(native_legend.get("text_style"), "label"))
             legend_options["orient"] = orient
             audit["legend"] = {"requested": loc, "chosen": orient, "reason": reason, "frame": frame, "columns": columns}
         legend.update(copy.deepcopy(legend_options))
+    offsets = {}
+    for axis in ("x", "y"):
+        text = axes_source.get(f"{axis}_offset_text", "")
+        if not text:
+            continue
+        # Plain scientific offset strings emitted by pinned VSR's formatter.
+        # Keep them separate from semantic titles and exclude them from GT marks.
+        offsets[axis] = text
+        role = roles.get(axis, {}).get("offset")
+        size = float((role or {}).get("size", style.get("tick_size", 11)))
+        mark = {"type": "text", "text": text, "clip": False,
+                "font": "DejaVu Sans", "fontSize": size, "fontWeight": 400,
+                "color": text_color, **text_properties(role)}
+        if axis == "x":
+            mark.update(x={"expr": "width"}, y={"expr": f"height + {size * 1.7 + float(style.get('tick_pad', 3))}"},
+                        align="right", baseline="top")
+        else:
+            mark.update(x=0, y=-5, align="left", baseline="bottom")
+        result["layer"].append({"name": f"__vsr_decoration_axis_offset_{axis}",
+                                "data": {"values": [{}]}, "mark": mark})
+    audit["axis_offsets"] = offsets
     return result

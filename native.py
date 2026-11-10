@@ -176,7 +176,19 @@ def _matches(cfg, c):
     return True
 
 
-def _axes_snapshot(ax, fig):
+def _text_style(artist):
+    from matplotlib.font_manager import findfont
+    from presentation import describe_font
+    props = artist.get_fontproperties()
+    filename = props.get_file() or findfont(props, fallback_to_default=False)
+    # fname pins the actual face in Matplotlib, even if requested weight/style
+    # differ. Resolve that face rather than assuming requested properties won.
+    face = describe_font(filename)
+    return {**face, "file": Path(filename).name, "size": artist.get_fontsize(),
+            "rotation": artist.get_rotation(), "align": artist.get_horizontalalignment()}
+
+
+def _axes_snapshot(ax, fig, cfg=None):
     """Capture choices made inside render_one after sample_config returned."""
     reference_lines = []
     for line in ax.lines:
@@ -201,7 +213,36 @@ def _axes_snapshot(ax, fig):
             "color": tick.tick1line.get_color(),
             "visible": tick.tick1line.get_visible(),
         }
+    renderer = fig.canvas.get_renderer()
+    legend = ax.get_legend()
+    legend_snapshot = None
+    if legend is not None and legend.get_visible():
+        bbox = legend.get_window_extent(renderer)
+        area = ax.bbox
+        x, y = (bbox.x0 - area.x0) / area.width, (area.y1 - bbox.y1) / area.height
+        w, h = bbox.width / area.width, bbox.height / area.height
+        candidates = {"top-right": (1-w, 0), "top-left": (0, 0),
+                      "bottom-right": (1-w, 1-h), "bottom-left": (0, 1-h),
+                      "top": ((1-w)/2, 0), "bottom": ((1-w)/2, 1-h),
+                      "left": (0, (1-h)/2), "right": (1-w, (1-h)/2),
+                      "center": ((1-w)/2, (1-h)/2)}
+        corner = min(candidates, key=lambda k: (x-candidates[k][0])**2 + (y-candidates[k][1])**2)
+        texts = legend.get_texts()
+        legend_snapshot = {"bbox_axes_top_left": [x, y, w, h], "anchor": corner,
+                           "text_style": _text_style(texts[0]) if texts else None}
+    loc = (cfg or {}).get("title_loc", "center")
+    title_artist = {"left": ax._left_title, "right": ax._right_title}.get(loc, ax.title)
+    text_styles = {"title": _text_style(title_artist)}
+    grid_styles = {}
+    for axis_name, axis in (("x", ax.xaxis), ("y", ax.yaxis)):
+        labels = axis.get_ticklabels()
+        text_styles[axis_name] = {"label": _text_style(labels[0]) if labels else None,
+                                  "title": _text_style(axis.label),
+                                  "offset": _text_style(axis.get_offset_text())}
+        grid_styles[axis_name] = any(line.get_visible() for line in axis.get_gridlines())
     return jsonable({
+        "presentation_version": 2,
+        "text_styles": text_styles, "legend": legend_snapshot, "grid_visible": grid_styles,
         "tick_styles": tick_styles,
         "xlim": ax.get_xlim(), "ylim": ax.get_ylim(),
         "x_inverted": ax.xaxis_inverted(), "y_inverted": ax.yaxis_inverted(),
@@ -276,7 +317,7 @@ def generate_native(kind, seed, outdir, controls=None, render=True):
 
             def collect(ax, cfg, fig):
                 result = original_collect(ax, cfg, fig)
-                diagnostics["axes"] = _axes_snapshot(ax, fig)
+                diagnostics["axes"] = _axes_snapshot(ax, fig, cfg)
                 return result
 
             annotation = None
@@ -306,3 +347,33 @@ def generate_native(kind, seed, outdir, controls=None, render=True):
             _save(outdir / "config.json", cfg)
             _save(outdir / "native.diagnostics.json", diagnostics)
             return {"config": jsonable(cfg), "annotation": jsonable(annotation), "sample_seed": sample_seed, "diagnostics": jsonable(diagnostics)}
+
+
+def recover_presentation(kind, cfg, generation):
+    """Replay a saved seed to recover display-only diagnostics, with equality gates.
+
+    This is opt-in for old runs. The saved config and original PNG stay untouched;
+    any observation/config or axis discrepancy aborts recovery.
+    """
+    import tempfile
+    def comparable(value):
+        if isinstance(value, dict):
+            return {key: (str(v).replace("\\", "/").rsplit("/", 1)[-1] if key == "font_path" else comparable(v))
+                    for key, v in value.items() if key != "_render_axes"}
+        if isinstance(value, list):
+            return [comparable(v) for v in value]
+        return value
+    with tempfile.TemporaryDirectory(prefix="vsr-presentation-") as tmp:
+        replay = generate_native(kind, int(generation["seed"]), tmp,
+                                 controls=generation.get("controls", {}), render=True)
+    if comparable(cfg) != comparable(replay["config"]):
+        raise ValueError("Native presentation replay changed the saved configuration; refusing to reuse diagnostics")
+    old, new = cfg.get("_render_axes", {}), replay["config"]["_render_axes"]
+    for key in ("xlim", "ylim", "xscale", "yscale", "aspect", "xticks", "yticks", "xticklabels", "yticklabels", "x_offset_text", "y_offset_text"):
+        if key in old and old[key] != new[key]:
+            raise ValueError(f"Native presentation replay differs in {key}; refusing to change the saved axes")
+    merged = copy.deepcopy(cfg)
+    # Keep old geometry exactly; add recovered visual fields only.
+    merged.setdefault("_render_axes", {}).update({key: new[key] for key in
+        ("presentation_version", "text_styles", "legend", "grid_visible", "tick_styles")})
+    return merged

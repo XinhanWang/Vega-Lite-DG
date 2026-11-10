@@ -28,7 +28,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -619,6 +619,12 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
     style = cfg.get("style", {})
     figsize = style.get("figsize", [8, 5.5])
     width, height = max(240, float(figsize[0]) * 72), max(180, float(figsize[1]) * 72)
+    bbox = _native(cfg).get("axes_bbox_bottom_left")
+    dpi = _native(cfg).get("dpi", style.get("dpi"))
+    if fit_to_data and bbox and dpi and all(math.isfinite(float(v)) and float(v) > 0 for v in bbox[2:]):
+        # Style lengths are in points. Use actual axes (not the entire figure)
+        # in the same units to retain native text/marker-to-plot proportions.
+        width, height = float(bbox[2]) * 72 / float(dpi), float(bbox[3]) * 72 / float(dpi)
     aspect = _native(cfg).get("aspect", "auto")
     equal_aspect = aspect == "equal" or isinstance(aspect, (int, float)) and aspect > 0
     if equal_aspect:

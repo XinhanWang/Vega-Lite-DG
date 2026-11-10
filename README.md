@@ -75,19 +75,27 @@ python3 pipeline.py validate --output runs/my_reprojected
 
 ## 视觉样式多样性
 
-从适配器 2.2.0 起，正常 `generate` 和 `reproject` 默认启用下列样式映射，无需额外开关：
+适配器 2.3.0 默认保留原生渲染后的实际展示状态。正常 `generate` 会自动捕获这些信息，无需额外开关；完整绘图规格仍通过固定版本的官方 Vega-Lite → Vega → Resvg 链路生成图片。
 
-- **字体**：读取 VSR 实际绘图所用的顶层 `font_path`，将字体家族、字重和字形传给标题、坐标轴与图例。顶层缺省时才读取 `style.font_path`。当前字体包包含 16 个文件、9 个家族；文件数不等于家族数。生成控制中的 `style.font_path` 会同时覆盖原生图和 Vega-Lite 图使用的字体。
-- **网格与边框**：保留实线、虚线、点线、颜色、透明度、宽度，以及四侧边框的显示状态。
-- **刻度**：原生绘图时随机选择的朝向、长度、宽度和颜色写入 `config.json` 的 `_render_axes.tick_styles`，随后映射到 Vega-Lite。旧配置未记录这些值时采用显式配置或默认值，无法追溯当时的随机选择。
-- **图例**：保留框线、半透明底色、列数、内外间距、线段长度；图例符号使用各系列实际的线型或点形。保留角落、居中和外置布局；`best` 根据最终坐标范围内的数据占用情况选择角落。
-- **标题**：支持左、中、右对齐及独立的大小、粗细、倾斜和间距。
+- **字体按文字角色保留**：分别记录标题、轴标题、刻度、倍率标记和图例实际使用的字体家族、字重、字形和字号。VSR 的数值刻度与图例经常使用默认 DejaVu Sans，不能统一替换成标题字体。Matplotlib 指定 `fname` 时以字体文件的实际字形为准；采样配置中的 `title_style` / `title_weight` 不一定最终生效。
+- **倾斜标签**：保留原生 `x_rotation` / 实际文字角度。倾斜长标签通过自动画布留白完整展示，不再强制改为水平换行；必要时扩大类别间距。水平长标签仍可换行。
+- **数值刻度**：保留原生显示精度、负号、科学计数倍率或偏移文本。倍率单独作为标准 Vega-Lite 文字图层绘制，不改数据、不混入语义轴标题或训练目标。
+- **绘图区与大小比例**：将原生 axes 的像素尺寸按 DPI 转成点，与字号、描边宽度的单位对齐，避免将整张 figure 尺寸误当绘图区。防裁切仍可扩大范围或绘图区。
+- **图例**：捕获原生最终图例边界，保留 `best` 已解析出的实际锚点；保留列数、边框、透明底色、间距和系列符号。散点图例使用实际点大小。过大的图例仍可能外移以容纳完整文字，位置和原因写入审计。
+- **网格与刻度**：捕获渲染时实际启用的网格方向、刻度朝向、长度、颜色和宽度。内向刻度额外预留标签距离；保留四侧边框。
 
-样式记录位于 `source.json.presentation` / `full.vl.json.usermeta.presentation`，实际渲染使用的字体文件和哈希记录在 `render-report.json` 的 `records[].full.selected_font`。选定字体缺失时会明确失败；请先运行 `bootstrap.py`，或通过 renderer 的 `--font-dir` 提供该文件。跨机器重投影会按文件名在项目字体目录中查找。
+原生诊断保存在新样本 `config.json._render_axes`；映射记录位于 `source.json.presentation` / `full.vl.json.usermeta.presentation`。`render-report.json` 记录渲染器与字体文件哈希。选定字体缺失会明确失败；跨机器配置按文件名在项目字体目录中查找。字体初始化见 `bootstrap.py`。
 
-样式仅影响完整绘图规格。相同配置的原始数据和 `compact.vl.json` 不因样式映射而改变。长标题、长标签仍自动换行；过大的内部图例会外移以保留完整文字，最终位置及原因写入样式记录。原有的坐标域扩展、误差棒/标记留边和裁切检查继续生效。
+旧配置若缺少上述信息，可按原种子与原控制参数重放原生渲染来补齐：
 
-Vega-Lite 与 Matplotlib 的字体度量、物理尺寸和布局算法不同，因此不承诺像素级一致。`best` 是确定性的占用启发式；线图图例显示线段及其虚线样式，不复刻 Matplotlib 的“线段加标记”组合。原生 `legend_shadow` 暂无标准 Vega-Lite 图例属性可直接表达，记录为 `not_supported`，不会伪造为已支持。纹理仍使用既有的规则线/符号近似。
+```sh
+python3 pipeline.py reproject --source runs/production_diverse_v4 \
+  --output runs/my_fidelity_run --recover-native-presentation
+```
+
+重放前后逐项核对配置、坐标范围、刻度和标签；存在差异则失败，不使用不匹配的诊断。旧 `config.json`、原生 PNG 和数据保留，恢复结果另存 `presentation.native.json`，后续重投影会复用此文件。仅有配置、没有种子及原生诊断时，使用明确记录的回退样式；`best` 的占用启发式只用于这种缺少原生落点的情况。
+
+这些改动不改变观察数据和 `compact.vl.json`。字体度量、图例阴影、线图“线段加标记”的复合图例、纹理密度仍存在跨渲染器差异；不承诺像素级复刻。自动文字检查验证完整性和画布边界，不能证明任意文字都互不重叠。
 
 ## 配置
 
@@ -158,9 +166,14 @@ VSR_TEXT_TEST_MODULES="$PWD/node_modules" python3 -m unittest discover -s tests 
 
 执行 SVG 集成测试需要 PATH 中的 Node 版本为 22+，并将 `VSR_TEXT_TEST_MODULES` 指向实际安装的 node_modules；未设置时 SVG 集成项跳过。服务器依赖安装在父目录，应使用 `PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" python3 -m unittest discover -s tests -v`。
 
-2026-11-10（适配器 2.2.0）的服务器验证结果：67 项测试通过，包括实际 SVG 的字体、图例、虚线、刻度方向和有限布局坐标检查。`runs/production_diverse_v4` 九类各 50 个旧配置重绘后全部接收；`runs/fresh_diverse_v4` 新种子九类各 3 个样本全部接收。477 份 SVG 的字体家族均与选定字体一致，生产集覆盖 9 个家族、16 个字体文件；旧 450 份配置、观察数据和精简 JSON 逐份相同。
+2026-11-10（适配器 2.3.0）的服务器验证：73 项测试通过，包含实际 SVG 的绘图区底色检查，以及原生字体角色、旋转标签、科学计数倍率、图例锚点与重放一致性检查。
 
-原尺寸图及观察数据的裁切检查通过；额外审计 1036 缩放图时有 4 条零值参考线的保守描边包围框触边提示，与旧版相同样本的提示一致，不涉及观察数据。记录在服务器 `diagnostics/style-diversity-v4/delivery/verification.json`。这里的结果只适用于已验证版本和样本，不代表任意未来配置均会通过。
+- `runs/production_fidelity_v5`：九类各 50 个，共 450 个旧样本全部接收；与 `production_diverse_v4` 的配置文件、原生 PNG 字节相同，观察数据表和精简 JSON 内容逐份相同。
+- `runs/fresh_fidelity_v5`：新种子 20261111，九类各 3 个，共 27 个新样本全部接收。正常 `generate` 会自动捕获并映射新诊断。
+- 477 份完整图的 SVG 文本检查通过；原尺寸图元、文字的画布边界和绘图区裁切检查均通过。额外的 1036 缩放审计有 24 条零值参考线的保守描边包围框触边提示（旧样本 22、新样本 2），逐条确认是 `reference_*`，没有观察点、柱、折线或误差区间裁切提示。
+- 用户指出的三个案例通过公开 `reproject --recover-native-presentation` 命令恢复；再次重投影可复用恢复文件，完整规格完全一致。
+
+证据位于服务器 `diagnostics/fidelity-v5/delivery/verification.json`，九类对比页位于 `deliveries/fidelity-v5/comparison.html`。此前 `production_no_clip_v3`、`production_diverse_v4` 等目录保留。以上结果适用于已验证版本和样本，不代表任意未来配置均会通过。
 
 ## Git 管理范围
 

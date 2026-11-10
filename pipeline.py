@@ -333,11 +333,18 @@ def reproject(args):
         source_dir, target = origin / old['sample'], out / old['sample']
         target.mkdir(parents=True)
         for name in ['config.json', 'native.raw.config.json', 'native.annotation.json',
-                     'native.diagnostics.json', 'native.png', 'native.original.annotation.json', 'generation.json']:
+                     'native.diagnostics.json', 'native.png', 'native.original.annotation.json', 'generation.json', 'presentation.native.json']:
             if (source_dir / name).is_file():
                 shutil.copy2(source_dir / name, target / name)
         config = read(target / 'config.json')
-        full, compact, source = build_pair(old['kind'], config)
+        render_config = config
+        if (target / 'presentation.native.json').is_file():
+            render_config = {**config, '_render_axes': read(target / 'presentation.native.json')}
+        if getattr(args, 'recover_native_presentation', False) and render_config.get('_render_axes', {}).get('presentation_version', 0) < 2:
+            from native import recover_presentation
+            render_config = recover_presentation(old['kind'], config, read(target / 'generation.json'))
+            dump(target / 'presentation.native.json', render_config['_render_axes'])
+        full, compact, source = build_pair(old['kind'], render_config)
         if normalize(full) != compact or normalize(compact) != compact:
             raise ValueError(f'Noncanonical compact: {old["id"]}')
         for name, value in [('full.vl.json', full), ('compact.vl.json', compact), ('source.json', source)]:
@@ -376,6 +383,7 @@ def main():
     val = sub.add_parser('validate')
     val.add_argument('--output', required=True)
     rep = sub.add_parser('reproject')
+    rep.add_argument('--recover-native-presentation', action='store_true', help='Replay saved seeds with strict equality checks to recover missing native typography and legend placement')
     rep.add_argument('--source', required=True)
     rep.add_argument('--output', required=True)
     rep.add_argument('--prepare-only', action='store_true')

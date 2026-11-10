@@ -129,14 +129,21 @@ def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: f
                 mapping = _mapping(axis.get("labelExpr"))
                 count = len(mapping) if mapping else 0
                 wrap_width = min(max_label_width, max(100, width / max(1, count) - 14)) if channel_name == "x" else max_label_width
-                wrapped = _wrap_mapping(axis, wrap_width, size)
+                angled = channel_name == "x" and abs(float(axis.get("labelAngle", 0))) >= 10
+                # Preserve the sampled rotation. Autosize includes the complete
+                # angled text; the conservative spacing uses text line height,
+                # not full word width projected onto x (parallel labels interleave).
+                wrapped = _wrap_mapping(axis, 1e9 if angled else wrap_width, size)
+                if angled and count:
+                    angle = math.radians(abs(float(axis["labelAngle"])))
+                    needed_width = max(needed_width, count * (size * 1.25 / max(0.17, abs(math.sin(angle))) + 4))
                 if wrapped:
                     axis["labelOverlap"] = False
                     axis["labelLineHeight"] = math.ceil(size * 1.25)
                     max_lines = max(len(_lines(value)) for value in wrapped)
                     # Multi-line x labels read horizontally; reserve enough
                     # category spacing without modifying scale/domain values.
-                    if channel_name == "x" and max_lines > 1:
+                    if channel_name == "x" and max_lines > 1 and not angled:
                         axis["labelAngle"] = 0
                         needed_width = max(needed_width, count * (max(_width(value, size) for value in wrapped) + 14))
                     elif channel_name == "y" and max_lines > 1:
@@ -210,6 +217,9 @@ def audit_text(spec: dict, svg_text: str) -> dict:
             return
         expected.setdefault(role, set()).add(key(value))
         original[role, key(value)] = value
+
+    for offset in spec.get("usermeta", {}).get("presentation", {}).get("axis_offsets", {}).values():
+        add("mark", offset)
 
     def visit(node: dict, inherited_values: list[dict]) -> None:
         values = node.get("data", {}).get("values", inherited_values)
