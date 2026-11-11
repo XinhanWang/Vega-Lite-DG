@@ -18,7 +18,7 @@ from workflow.io import canonical, dump, jsonl, read, serialize
 
 class SpecFormatTests(unittest.TestCase):
     def assert_views(self, spec):
-        priority = ['title', 'data', 'layer'] if 'layer' in spec else ['title', 'data', 'mark', 'encoding']
+        priority = ['title', 'data', 'encoding', 'layer'] if 'layer' in spec else ['title', 'data', 'mark', 'encoding']
         prefix = [k for k in priority if k in spec]
         self.assertEqual(list(spec)[:len(prefix)], prefix)
         if 'mark' in spec:
@@ -38,6 +38,14 @@ class SpecFormatTests(unittest.TestCase):
                     cfg['title'] = title
                     full, _, _ = build_geometry_pair(kind, cfg)
                     gt = normalize(full)
+                    if 'layer' in gt:
+                        self.assertIn('x', gt['encoding'])
+                        self.assertIn('y', gt['encoding'])
+                        self.assertNotIn('encoding', gt['layer'][0])
+                        self.assertEqual(gt['layer'][0]['mark'], {'type': 'bar'})
+                        # Error layers override only the interval channels;
+                        # grouping and the categorical position are inherited.
+                        self.assertLessEqual(set(gt['layer'][1]['encoding']), {'x', 'x2', 'y', 'y2'})
                     self.assertEqual(semantic_rows(gt), project_rows(full))
                     self.assertEqual(serialize(normalize(gt)), serialize(gt))
                     for name, spec in [('full', full), ('compact', gt)]:

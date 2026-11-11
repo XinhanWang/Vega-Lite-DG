@@ -149,4 +149,6 @@ python3 pipeline.py reproject --source runs/old_run --output runs/new_compact_v4
 
 验收与剩余边界见 docs/compact-v4-delivery-20261111.md 和 docs/compact-v4-independent-audit-20261111.md。
 
-Vega-Lite output uses object marks (`{"type":"bar"}`). Unit views follow `title → data → mark → encoding → other keys`; layered views follow `title → data → layer → other keys`, including nested layers. Absent keys are skipped. Assistant JSON in `train.jsonl` preserves this order. Historical string marks are accepted and normalized; observation values are preserved and hash serialization remains independent.
+Vega-Lite output uses object marks (`{"type":"bar"}`). Unit views follow `title → data → mark → encoding → other keys`; layered views follow `title → data → encoding → layer → other keys`, including nested layers. Absent keys are skipped. Assistant JSON in `train.jsonl` preserves this order. Historical string marks are accepted and normalized; observation values are preserved and hash serialization remains independent.
+
+Shared semantic channels live in the layered target's top-level `encoding`; layer encodings contain overrides such as error interval endpoints. Output syntax follows the [unified GT template](https://aicarrier.feishu.cn/docx/S5yKdnAPoobj5Zxdi2Ych9sLnSG).
