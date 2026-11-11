@@ -105,6 +105,9 @@ def sample_config(kind, seed, controls=None):
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
     c = normalize_controls(kind, controls)
+    if kind in {"pie", "boxplot"}:
+        from .summaries import sample
+        return clean(sample(RandomSource(seed), kind, c))
     cfg, p = sample_parameters(kind, seed, c)
     cfg = clean(cfg)
     cfg['generator_version'] = GENERATOR_VERSION
@@ -184,8 +187,8 @@ def sampling_diagnostics(kind, seed, cfg, controls=None):
             "requested_seed": seed, "sample_seed": seed, "sampling_attempts": 1,
             "controls": clean(c), "family": cfg["family"], "profile": cfg["style"]["profile"],
             "axes": copy.deepcopy(cfg["_render_axes"]), "renderer": "vega-lite",
-            "source": "static VSR parameter rules with independent per-sample RNGs",
-            "upstream": UPSTREAM,
+            "source": "native statistical samplers with independent per-sample RNGs" if kind in {"pie", "boxplot"} else "static VSR parameter rules with independent per-sample RNGs",
+            "upstream": None if kind in {"pie", "boxplot"} else UPSTREAM,
             "config_sha256": config_sha256}
 
 

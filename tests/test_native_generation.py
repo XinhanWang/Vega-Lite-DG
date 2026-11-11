@@ -17,6 +17,8 @@ from generation.controls import normalize_controls
 
 
 def compact_controls(kind):
+    if kind in {'pie', 'boxplot'}:
+        return {'category_count': 5}
     controls = {'category_count': 5} if kind.startswith('bar') else {'point_count': 16 if kind == 'scatter_n' else 8}
     if not kind.endswith('_1'):
         controls['series_count'] = 2
@@ -24,7 +26,7 @@ def compact_controls(kind):
 
 
 class NativeGenerationTests(unittest.TestCase):
-    def test_nine_kinds_are_deterministic_with_matplotlib_import_forbidden(self):
+    def test_registered_kinds_are_deterministic_with_matplotlib_import_forbidden(self):
         script = r'''
 import importlib.abc,json,pathlib,sys,tempfile
 class NoMatplotlib(importlib.abc.MetaPathFinder):
@@ -39,6 +41,7 @@ with tempfile.TemporaryDirectory() as directory:
     for index,kind in enumerate(KINDS):
         controls={'category_count':5} if kind.startswith('bar') else {'point_count':16 if kind=='scatter_n' else 8}
         if not kind.endswith('_1'):controls['series_count']=2
+        if kind in {'pie','boxplot'}:controls={'category_count':5}
         first=generate_chart(kind,701+index,pathlib.Path(directory)/(kind+'a'),controls)
         second=generate_chart(kind,701+index,pathlib.Path(directory)/(kind+'b'),controls)
         full,target,source=build_pair(kind,first['config'])

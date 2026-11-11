@@ -359,6 +359,8 @@ export function collectGeometry(view, canvas, context = {}) {
           'strokeDash', 'strokeCap', 'strokeJoin', 'shape', 'size', 'angle', 'interpolate'].filter(key => styleItem[key] != null).map(key => [key, styleItem[key]])),
         group_offset: mark.group_offset, clip_boxes: clips};
       if (scene.marktype === 'rule') element.end = mapPoint([numberOr(item.x2, numberOr(item.x)) + dx, numberOr(item.y2, numberOr(item.y)) + dy], transform);
+      if (scene.marktype === 'arc') element.arc = Object.fromEntries(['startAngle', 'endAngle', 'innerRadius', 'outerRadius'].map(key => [key, item[key]]));
+      if (scene.marktype === 'text' && finite(item.theta) && finite(item.radius)) element.polar = {theta: item.theta, radius: item.radius};
       if (scene.marktype === 'area') element.end = mapPoint([x + numberOr(item.width), y + numberOr(item.height)], transform);
       elements.push(element);
       mark.element_count++;
@@ -374,6 +376,13 @@ export function collectGeometry(view, canvas, context = {}) {
     source_to_image: transform,
     view: {origin, padding, root_offset: offset, plot_width: view.width(), plot_height: view.height()},
     marks, elements, texts, extraction_issues: issues};
+  if (context.kind === 'boxplot') {
+    geometry.scales = {};
+    for (const axis of ['x', 'y']) {
+      const scale = view.scale(axis);
+      if (scale?.domain && scale?.range) geometry.scales[axis] = {domain: scale.domain(), range: scale.range()};
+    }
+  }
   geometry.validation = validateGeometry(geometry);
   return geometry;
 }
@@ -532,7 +541,8 @@ async function renderVariant(job, variant, runtime, options) {
     result.font_embedding={...fontResult.audit, source_archives:Object.fromEntries(Object.entries(fontResult.audit.source_archives || {}).map(([key,value])=>[key,{...value,base64:undefined}]))};
     const raster = await runtime.rasterize(canvas.svg);
     if (raster.width !== canvas.width || raster.height !== canvas.height) throw new Error('PNG dimensions differ from the explicit integer SVG viewport');
-    const geometry = collectGeometry(view, canvas, {id: job.id, variant, image: `${stem}.png`});
+    const kind = spec.usermeta?.semantic?.kind || ((spec.mark === 'arc' || spec.mark?.type === 'arc' || spec.layer?.some(layer => layer.name === 'sectors')) ? 'pie' : (spec.layer?.some(layer => layer.name === 'boxes') || Array.isArray(spec.data?.values?.[0]?.outliers)) ? 'boxplot' : null);
+    const geometry = collectGeometry(view, canvas, {id: job.id, variant, kind, image: `${stem}.png`});
     const validation = geometry.validation;
     if (!validation.element_count) errors.push('No data-mark geometry was rendered.');
     if (!validation.drawable_element_count) errors.push('No drawable data marks were rendered.');

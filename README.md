@@ -13,6 +13,13 @@
 | `barv_stack` | 绝对值或百分比堆叠纵向柱状图 |
 | `line_1` / `line_n` | 单系列 / 多系列折线图 |
 | `scatter_1` / `scatter_n` | 单系列 / 多系列散点图 |
+| `pie` | 饼图 / 环形图，百分比或绝对值 |
+| `boxplot` | 横向 / 纵向多类别 Tukey 箱线图 |
+
+Pie 和 Box Plot 使用 `generation/summaries.py` 采样、`statistical.py` 构建原生 Vega-Lite。
+统计 GT 接入现有 compact-v4、对象 mark 和预览投影流程：Pie 使用单层 arc，Box 使用四层预计算统计量，
+均可独立渲染；字段、顺序和精度约定见 [统计图说明](docs/statistical-charts.md)。
+`configs/statistical-smoke.json` 和 `configs/statistical-diversity.json` 分别生成每类 20、100 张。
 
 保留了数据族、样式配置、字体、配色、误差棒、柱形纹理、标记/线型、非线性与反向轴、参考线、等比例散点布局、长文字布局和质量检查。折线支持类别、等间隔时间标签和数值 x。所有可选数据族列在 `generation/controls.py`，每个图族的公式位于 `generation/bars.py`、`lines.py` 或 `scatter.py`。
 
@@ -90,7 +97,7 @@ python3 pipeline.py validate --output runs/reprojected
 | `workflow/` | 配置、文件读写、质量门与训练导出 |
 | `render.mjs` | 官方编译、独立子进程渲染、几何证据与恢复 |
 
-原 VSR 的 Matplotlib 绘图、原生 PNG/标注生成、resize/anchor 打包与重放链已移除。`native.py` 仅为旧 Python 调用提供兼容入口；旧配置中的 `native` / `postprocess_native` 不再生成额外图像，启用时会提示弃用。已有历史文件由 `reproject` 读取，不会被覆盖。当前1.2静态移植VSR的完整纯参数规则，按实际原版采样器核对数值、文本及关联；完整类别显示、隐藏系列命名、显式控制和Vega布局作为有记录的差异，不承诺跨渲染器像素一致。
+原 VSR 的 Matplotlib 绘图、原生 PNG/标注生成、resize/anchor 打包与重放链已移除。`native.py` 仅为旧 Python 调用提供兼容入口；旧配置中的 `native` / `postprocess_native` 不再生成额外图像，启用时会提示弃用。已有历史文件由 `reproject` 读取，不会被覆盖。自1.2起静态移植VSR的完整纯参数规则，按实际原版采样器核对数值、文本及关联；完整类别显示、隐藏系列命名、显式控制和Vega布局作为有记录的差异，不承诺跨渲染器像素一致。
 
 ## 验证与产物
 
@@ -110,7 +117,7 @@ PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" pytho
 
 ## 2026-11-11 样式恢复与独立 SVG 字体
 
-字体与样式恢复阶段版本为 `vega-lite-native/1.1`，当前采样版本为 `vega-lite-native/1.2`。旧版本保存的配置可用 `reproject` 投影到新目录；不同采样器版本不能混用 `generate --resume`。原 16 个基准字体文件维持采样池，新增字形文件仅服务于同家族粗体/斜体，不改变基准字体抽样权重。
+字体与样式恢复阶段版本为 `vega-lite-native/1.1`，当前采样版本为 `vega-lite-native/1.3`。旧版本保存的配置可用 `reproject` 投影到新目录；不同采样器版本不能混用 `generate --resume`。原 16 个基准字体文件维持采样池，新增字形文件仅服务于同家族粗体/斜体，不改变基准字体抽样权重。
 
 `render.mjs` 导出完整与精简 SVG 时调用 `font_embedding.py`：遍历所有文字角色，校验实际字形、字体哈希和许可，写入 `@font-face` data URI 与许可元数据；保留可选择和搜索的 `<text>`。Resvg 从 SVG 自带字节加载字体，关闭系统字体加载。`--rasterizer sharp` 因尚未实现相同的字体隔离契约而明确拒绝。未获许可、缺字、缺少实际字形或不支持的字体声明会明确报错。
 
@@ -126,7 +133,7 @@ PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" VSR_F
 
 ## VSR 数据与文本分布恢复（2026-11-11）
 
-当前生成器版本为 `vega-lite-native/1.2`。默认生产使用 `generation/vsr_samplers/` 的九类原版纯参数函数和 `generation/vsr_text.py`：原 family 权重、数量分段、图类尺度分布、族内全部公式与分支、排序、多线共享基曲线、多散点局部族混合、随机舍入、标题模板、轴标题缺省、系列名及完整词表均保留。数据和标题的默认逻辑不再使用1.0/1.1的均匀族采样和12指标固定标题模板。旧版本的验证记录保留为历史证据。
+当前生成器版本为 `vega-lite-native/1.3`。原九类默认生产继续使用 `generation/vsr_samplers/` 的九类原版纯参数函数和 `generation/vsr_text.py`：原 family 权重、数量分段、图类尺度分布、族内全部公式与分支、排序、多线共享基曲线、多散点局部族混合、随机舍入、标题模板、轴标题缺省、系列名及完整词表均保留。数据和标题的默认逻辑不再使用1.0/1.1的均匀族采样和12指标固定标题模板。旧版本的验证记录保留为历史证据。
 
 每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认自然percent样本保留原版随机舍入后的值。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
 

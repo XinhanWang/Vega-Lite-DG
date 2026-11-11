@@ -149,6 +149,11 @@ def _needs_input_order(context: dict) -> bool:
 
 def normalize(full: dict) -> dict:
     """Create minimal training GT; applying it again is idempotent."""
+    if (_semantic(full) or {}).get("kind") in {"pie", "boxplot"}:
+        from statistical import compact_spec
+        result = compact_spec(full)
+        validate_target(result)
+        return result
     if _semantic(full) is None:
         validate_target(full)
         return format_spec(full)
@@ -209,6 +214,10 @@ def project_rows(full: dict, version: int = 4) -> list[dict]:
         raise ValueError("Unsupported compact version")
     if _semantic(full) is None:
         return semantic_rows(full, version=version)
+    if _semantic(full)["kind"] in {"pie", "boxplot"}:
+        from generation.summaries import canonical_numbers
+        return canonical_numbers([{key: copy.deepcopy(value) for key, value in row.items() if key != "row_id"}
+                                  for row in full["data"]["values"]])
     return _data(_context(full, version=version), canonical=True)
 
 
@@ -239,6 +248,10 @@ def semantic_rows(spec: dict, version: int = 4) -> list[dict]:
 
 def validate_canonical(spec: dict) -> None:
     """Validate the bounded v4 grammar. Unsupported/legacy input raises ValueError."""
+    from statistical import target_kind, validate_compact
+    if target_kind(spec):
+        validate_compact(spec)
+        return
     def check(ok, message):
         if not ok:
             raise ValueError("Unsupported/noncanonical compact-v4: " + message)

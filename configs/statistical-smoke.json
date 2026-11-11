@@ -1,0 +1,6 @@
+{
+  "seed": 20261111,
+  "counts": {"pie": 20, "boxplot": 20},
+  "workers": 2,
+  "target_side": 1036
+}
