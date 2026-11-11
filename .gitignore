@@ -67,3 +67,20 @@
 /tests/fixtures/*
 !/tests/fixtures/style-canvas-vsr-8b2ca38.json
 !/tests/fixtures/native-1.0-barv-1.json
+
+# Static VSR parameter implementations; no renderer code or generated datasets.
+!/generation/vsr_samplers/
+/generation/vsr_samplers/*
+!/generation/vsr_samplers/*.py
+
+# Frozen original-VSR parameter/text references used by offline regression tests.
+!/tests/fixtures/vsr_samplers/
+/tests/fixtures/vsr_samplers/*
+!/tests/fixtures/vsr_samplers/*.gz
+!/tests/fixtures/vsr_samplers/*.json
+!/tests/fixtures/vsr_samplers/*.py
+!/tests/fixtures/vsr_samplers/README.md
+!/tests/vsr_text_fixtures/
+/tests/vsr_text_fixtures/*
+!/tests/vsr_text_fixtures/*.txt
+!/tests/vsr_text_fixtures/*.json

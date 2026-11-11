@@ -1,6 +1,6 @@
 # 生成、GT 与渲染约定
 
-当前生成器为 `vega-lite-native/1.0`，GT 合约为 `compact-v3`。样本经过“数据/样式采样 → 完整 Vega-Lite → 精简 GT → 两份独立渲染 → 质量门 → 训练导出”。Matplotlib 与 VSR 原生图像不再参与新样本生成。
+当前生成器为 `vega-lite-native/1.2`，GT 合约为 `compact-v3`。样本经过“数据/样式采样 → 完整 Vega-Lite → 精简 GT → 两份独立渲染 → 质量门 → 训练导出”。Matplotlib 与 VSR 原生图像不再参与新样本生成。
 
 ## 采样接口
 
@@ -19,7 +19,7 @@ full, compact, source = build_pair("line_n", sample["config"])
 
 `generate_chart` 只采样并保存 `config.json` 与 `sampling.json`，返回 `config`、`sample_seed` 和 `diagnostics`。它不创建图片。已有上述采样文件时拒绝覆盖。`build_pair` 不修改输入配置；完整 JSON 的 `data.values` 与 `source.rows` 是同一套观察。
 
-`generation/controls.py` 声明九种图表、各图族的数据分布和样式 profile。`common.py` 持有每样本独立的 Python/NumPy 随机源；`labels.py`、`styles.py`、`bars.py`、`lines.py`、`scatter.py` 分别处理文本、样式和图族数据；`core.py` 组合采样并记录坐标选择。新版本无需通过绘图后的随机状态捕获决定图表内容。
+`generation/controls.py` 声明九种图表、数据族和style profile。`vsr_samplers/` 静态保留原VSR纯采样函数，`vsr_text.py` 和 `words.txt` 保留文本与词表；`vsr_runtime.py` 绑定每样本独立Python Random/NumPy RandomState及已有纯RGB样式规则；`core.py` 整合显式控制、GT与坐标合约。不导入旧绘图、history、Matplotlib，不通过绘图反推观察数据。
 
 | 控制 | 适用范围与含义 |
 |---|---|
@@ -106,4 +106,4 @@ renderer 默认使用两个隔离 Node 子进程，每批最多十个样本，�
 
 旧运行配置中的 `native` / `postprocess_native` 可读取，启用时提示已移除并忽略。`--resume` 要求生成器版本、GT 合约和规范化配置均相同；旧版本运行使用 `reproject` 到新目录。重投影直接读取保存的 `config.json` 和可选 `presentation.native.json`，保留旧数据与可用展示快照，重新构建当前 JSON/图像。`--recover-native-presentation` 已不支持，不能重做 Matplotlib 捕获。
 
-图族与风格多样性来自显式可选的数据族及参数组合。相同新生成器版本、种子、控制与资源可重现；不保证与旧 VSR 生成器的同种子数据或像素一致。VSR 的设计归属与许可证保留在 `THIRD_PARTY.md` 和 `vendor/VSR/LICENSE`。
+图族、文字与风格多样性来自原VSR实际采样规则及显式控制。参数层按实际原版采样oracle核对；相同生成器版本、种子、控制和资源可重现。完整类别标签、隐藏系列名、显式controls和原生布局是记录的合约扩展，不承诺Matplotlib/Vega像素一致。VSR 的设计归属与许可证保留在 `THIRD_PARTY.md` 和 `vendor/VSR/LICENSE`。

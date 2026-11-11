@@ -1,7 +1,7 @@
 """Deterministic native chart sampling; Vega-Lite is the only rendering path."""
 from .controls import KINDS, FAMILIES, PROFILES
 
-GENERATOR_VERSION = "vega-lite-native/1.1"
+GENERATOR_VERSION = "vega-lite-native/1.2"
 
 
 def generate_chart(kind, seed, outdir, controls=None):

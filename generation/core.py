@@ -9,29 +9,9 @@ from pathlib import Path
 import numpy as np
 
 from . import GENERATOR_VERSION
-from . import bars, lines, scatter
 from .common import RandomSource, clean, save
-from .controls import FAMILIES, normalize_controls
-from .labels import series_names, titles
-from .styles import canvas
-from .style_rules import REQUIRED_FONT_FILES
-from .template_styles import finish_canvas
-
-
-def _counts(rng, kind, controls):
-    p = rng.py
-    max_series = 6 if kind == "barv_stack" else 5
-    if kind == "scatter_n" and "point_count" in controls:
-        max_series = min(max_series, (controls["point_count"] - 4) // 4)
-    series = controls.get("series_count", 1 if kind.endswith("_1") else p.randint(2, max_series))
-    if kind.startswith("bar"):
-        maximum = 24 if series == 1 else 16 if kind != "barv_stack" else 18
-        count = controls.get("category_count", p.randint(6, maximum))
-    elif kind.startswith("line"):
-        count = controls.get("point_count", p.randint(6, 28))
-    else:
-        count = controls.get("point_count", p.randint(max(12, series * 4 + 4), 48))
-    return count, series
+from .controls import normalize_controls
+from .vsr_runtime import sample_parameters, UPSTREAM
 
 
 def _axis_values(kind, cfg, axis):
@@ -117,29 +97,80 @@ def _axes(rng, kind, cfg, controls):
 
 
 def sample_config(kind, seed, controls=None):
-    """Sample a portable configuration with independent, deterministic RNGs."""
+    """Run the complete VSR parameter rules, then apply native contract adapters.
+
+    Raw default parameters retain the upstream stochastic control flow. Extra
+    fields below carry the native rendering/GT contract, not new data formulas.
+    """
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
     c = normalize_controls(kind, controls)
-    rng = RandomSource(seed)
-    count, series = _counts(rng, kind, c)
-    family = c.get("family", rng.py.choice(FAMILIES[kind]))
-    style = canvas(rng, kind, series, count, c)
-    show_probability = (.24 if kind.startswith("bar") else .18 if kind.startswith("line") else .14) if series == 1 else (.78 if kind.startswith("scatter") else 1.0)
-    show_legend = c.get("show_legend", rng.py.random() < show_probability)
-    chart_font = style['font_path'] if 'font_path' in c.get('style', {}) else str(Path(__file__).resolve().parents[1] / 'assets/fonts' / rng.py.choice(REQUIRED_FONT_FILES))
-    names = series_names(rng, series, show_legend)
-    cfg = {"generator_version": GENERATOR_VERSION, "kind": kind, "family": family,
-           "n_series": series, "font_path": chart_font, "style": style,
-           "show_legend": show_legend, "series_names": names, "series_name": names[0], **titles(rng, kind)}
-    sampler = bars if kind.startswith("bar") else lines if kind.startswith("line") else scatter
-    cfg.update(sampler.sample(rng, kind, count, series, family, style, c))
-    p = rng.py
-    cfg['title_loc'] = p.choice(('left', 'center'))
-    cfg['title_weight'] = p.choices(('normal', 'bold'), (.72, .28) if kind.startswith('bar') else (.74, .26) if kind.startswith('line') else (.76, .24))[0]
-    cfg['title_style'] = p.choices(('normal', 'italic'), (.86, .14) if kind.startswith('line') else (.85, .15) if kind.startswith('bar') and series > 1 else (.84, .16))[0]
-    finish_canvas(kind, cfg, c)
-    cfg["_render_axes"] = _axes(rng, kind, cfg, c)
+    cfg, p = sample_parameters(kind, seed, c)
+    cfg = clean(cfg)
+    cfg['generator_version'] = GENERATOR_VERSION
+    cfg['kind'] = kind
+    count = len(cfg['labels']) if kind.startswith('bar') else len(cfg['x_values']) if kind.startswith('line') else len(cfg['x'])
+    series = cfg.get('n_series', 1)
+    cfg['n_series'] = series
+    if not kind.endswith('_1') and len(cfg.get('series_names', [])) != series:
+        raise ValueError('Upstream sampler returned incompatible series names')
+    cfg['show_legend'] = c.get('show_legend', cfg.get('show_legend', kind.endswith('_n') or kind == 'barv_stack'))
+    if not cfg['show_legend']:
+        cfg['series_names'] = [f'Series {i+1}' for i in range(series)]
+        cfg['series_name'] = cfg['series_names'][0]
+    elif 'series_names' not in cfg:
+        cfg['series_names'] = [cfg['series_name']]
+    if 'series_name' not in cfg:
+        cfg['series_name'] = cfg['series_names'][0]
+    style = cfg['style']
+    style['style_family'] = style['profile']
+    style.update(c.get('style', {}))
+    if 'font_path' in c.get('style', {}):
+        cfg['font_path'] = style['font_path']
+    if len(style['series_colors']) < series:
+        raise ValueError('style.series_colors must contain a color for every series')
+    if len(style['figsize']) != 2 or any(isinstance(v, bool) or not isinstance(v, (int,float)) or v <= 0 for v in style['figsize']):
+        raise ValueError('style.figsize must contain two positive dimensions')
+    if not isinstance(style['dpi'], (int,float)) or style['dpi'] <= 0:
+        raise ValueError('style.dpi must be positive')
+    if kind.startswith('bar'):
+        axis = 'x' if kind.startswith('barh') else 'y'
+        error_key = axis+'err'
+        if 'show_error' in c:
+            if c['show_error'] and cfg.get(error_key) is None:
+                values = np.asarray([cfg['values']] if kind.endswith('_1') else cfg['matrix'])
+                error = [[abs(float(v))*p.uniform(.05,.16 if kind.endswith('_1') else .14)+p.uniform(0,.2 if kind.endswith('_1') else .25) for v in row] for row in values]
+                cfg[error_key] = error[0] if kind.endswith('_1') else error
+                cfg['capsize'] = p.randint(2,5)
+                cfg['error_kw'] = {'elinewidth':p.uniform(.8,1.6),'capthick':p.uniform(.8,1.6)}
+            elif not c['show_error']:
+                cfg[error_key] = None
+        cfg['show_error'] = cfg.get('show_error', cfg.get(error_key) is not None)
+        if 'show_error' in c:
+            cfg['show_error'] = c['show_error']
+        if 'hatch' in c:
+            if kind.endswith('_1'): cfg['hatch'] = c['hatch']
+            else: cfg['hatches'] = [c['hatch']]*series
+        # Exact-percent is an explicit native control; upstream's natural
+        # percent stacks retain their original independently rounded segments.
+        if kind == 'barv_stack' and c.get('stack_mode') == 'percent':
+            matrix = np.asarray(cfg['matrix'],dtype=float)
+            for i in range(count):
+                matrix[int(np.argmax(matrix[:,i])),i] += 100-float(matrix[:,i].sum())
+            cfg['matrix'] = matrix.tolist()
+            cfg['bottoms'] = np.vstack((np.zeros(count),np.cumsum(matrix,axis=0)[:-1])).tolist()
+        category_axis = 'y' if kind.startswith('barh') else 'x'
+        width = cfg.get('bar_height' if kind.startswith('barh') else 'bar_width', .7)
+        offsets = cfg.get('offsets', [0])
+        low = min(offsets)-width/2
+        high = count-1+max(offsets)+width/2
+        margin = (high-low)*.05 or .5
+        cfg.setdefault(category_axis+'lim', [low-margin, high+margin])
+        cfg.setdefault(axis+'lim', cfg.get(axis+'lims'))
+    if kind.startswith('line') and count == 1:
+        cfg['markers'] = [m or 'o' for m in cfg['markers']]
+    # Continue the sample-local random stream for renderer-time choices.
+    cfg['_render_axes'] = _axes(type('AxisRandom', (), {'py': p})(), kind, cfg, c)
     return clean(cfg)
 
 
@@ -153,7 +184,8 @@ def sampling_diagnostics(kind, seed, cfg, controls=None):
             "requested_seed": seed, "sample_seed": seed, "sampling_attempts": 1,
             "controls": clean(c), "family": cfg["family"], "profile": cfg["style"]["profile"],
             "axes": copy.deepcopy(cfg["_render_axes"]), "renderer": "vega-lite",
-            "source": "native parameter/data samplers; family taxonomy inspired by VSR",
+            "source": "static VSR parameter rules with independent per-sample RNGs",
+            "upstream": UPSTREAM,
             "config_sha256": config_sha256}
 
 

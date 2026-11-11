@@ -83,14 +83,14 @@ python3 pipeline.py validate --output runs/reprojected
 | 文件/目录 | 职责 |
 |---|---|
 | `pipeline.py` | `generate` / `validate` / `reproject` CLI 与调度 |
-| `generation/` | 参数校验、随机源、标签、样式和三个图族采样子程序 |
+| `generation/` | 原VSR静态纯参数函数、完整词表、样式规则、独立随机源与原生合约整合 |
 | `adapter.py` | 原生数据与视觉参数转完整 Vega-Lite |
 | `ordering.py`、`compact.py` | 可见顺序、最小 GT、观察投影 |
 | `presentation.py`、`plot_layout.py`、`text_layout.py` | 字体/图例、绘图区、完整文字布局 |
 | `workflow/` | 配置、文件读写、质量门与训练导出 |
 | `render.mjs` | 官方编译、独立子进程渲染、几何证据与恢复 |
 
-原 VSR 的 Matplotlib 绘图、原生 PNG/标注生成、resize/anchor 打包与重放链已移除。`native.py` 仅为旧 Python 调用提供兼容入口；旧配置中的 `native` / `postprocess_native` 不再生成额外图像，启用时会提示弃用。已有历史文件由 `reproject` 读取，不会被覆盖。新采样保留 VSR 的图族设计，**不承诺与旧 VSR 相同种子生成相同数据或相同像素**。
+原 VSR 的 Matplotlib 绘图、原生 PNG/标注生成、resize/anchor 打包与重放链已移除。`native.py` 仅为旧 Python 调用提供兼容入口；旧配置中的 `native` / `postprocess_native` 不再生成额外图像，启用时会提示弃用。已有历史文件由 `reproject` 读取，不会被覆盖。当前1.2静态移植VSR的完整纯参数规则，按实际原版采样器核对数值、文本及关联；完整类别显示、隐藏系列命名、显式控制和Vega布局作为有记录的差异，不承诺跨渲染器像素一致。
 
 ## 验证与产物
 
@@ -123,3 +123,11 @@ DejaVu/Noto 采用字形子集；URW 保持原字节并附完整上游源码归�
 ```sh
 PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" VSR_FONT_INTEGRATION=1 python3 -m unittest discover -s tests -v
 ```
+
+## VSR 数据与文本分布恢复（2026-11-11）
+
+当前生成器版本为 `vega-lite-native/1.2`。默认生产使用 `generation/vsr_samplers/` 的九类原版纯参数函数和 `generation/vsr_text.py`：原 family 权重、数量分段、图类尺度分布、族内全部公式与分支、排序、多线共享基曲线、多散点局部族混合、随机舍入、标题模板、轴标题缺省、系列名及完整词表均保留。数据和标题的默认逻辑不再使用1.0/1.1的均匀族采样和12指标固定标题模板。旧版本的验证记录保留为历史证据。
+
+每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认自然percent样本保留原版随机舍入后的值。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
+
+同版本恢复使用 `generate --resume`；1.1及更早的保存配置使用 `reproject` 到新目录，避免混采。修改前清单见 `docs/vsr-alignment-baseline-20261111.md`，数值和文本移植说明见 `docs/vsr-numeric-restoration-20261111.md`、`docs/vsr-text-restoration-20261111.md`，实际对照与交付证据见 `docs/vsr-alignment-delivery-20261111.md`。
