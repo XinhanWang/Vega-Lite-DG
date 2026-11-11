@@ -50,10 +50,13 @@ def audit_geometry(kind, cfg, spec, geometry):
     rows = spec["data"]["values"]
     categories = [row["category"] for row in rows]
     rows_by_category = {row["category"]: row for row in rows}
+    flattened_marks = {element["mark_id"] for element in elements("outliers_")} if compact and kind == "boxplot" else set()
     for element in geometry["elements"]:
         datum = element.get("datum") or {}
         original = rows_by_category.get(datum.get("category"))
-        if original is not None and any(datum.get(key) != value for key, value in original.items()):
+        flattened = element["mark_id"] in flattened_marks
+        if original is not None and any(datum.get(key) != value for key, value in original.items()
+                                        if not (flattened and key == "outliers")):
             errors.append("Rendered statistical datum differs from the input table")
             break
     if not compact and spec["encoding"]["color"]["scale"]["domain"] != categories:
@@ -131,11 +134,12 @@ def audit_geometry(kind, cfg, spec, geometry):
                 if abs(actual - expected) > 1e-5:
                     errors.append("Rendered statistic position mismatch: " + field)
         expected = collections.Counter((row["category"], value) for row in rows for value in row["outliers"])
-        actual = collections.Counter((element["datum"]["category"], element["datum"]["outlier"]) for element in elements("outliers_"))
+        outlier_field = "outliers" if compact else "outlier"
+        actual = collections.Counter((element["datum"]["category"], element["datum"][outlier_field]) for element in elements("outliers_"))
         if expected != actual:
             errors.append("Outlier point coverage/multiplicity mismatch")
         for element in elements("outliers_"):
-            if abs(element["anchor"][axis_index] - coordinate(element["datum"]["outlier"], element)) > 1e-5:
+            if abs(element["anchor"][axis_index] - coordinate(element["datum"][outlier_field], element)) > 1e-5:
                 errors.append("Outlier position differs from statistic")
         boxes = elements("boxes_")
         locations = [element["center"][1 - axis_index] for element in boxes]

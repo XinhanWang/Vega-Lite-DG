@@ -92,7 +92,7 @@ def compact_spec(full):
     if options.get("title"):
         result["title"] = options["title"]
     if semantic["kind"] == "pie":
-        result.update(mark="arc", transform=[{"window": [{"op": "row_number", "as": "order"}]}],
+        result.update(mark={"type": "arc"}, transform=[{"window": [{"op": "row_number", "as": "order"}]}],
                       encoding={"theta": {"field": "value", "type": "quantitative", "stack": True,
                                           "title": "Share (%)" if options["value_mode"] == "percent" else "Value"},
                                 "color": {"field": "category", "type": "nominal", "sort": None},
@@ -100,19 +100,20 @@ def compact_spec(full):
         return format_spec(result)
     horizontal = options["orientation"] == "horizontal"
     category_axis, value_axis = ("y", "x") if horizontal else ("x", "y")
-    values = [value for row in rows for value in [row["lower"], row["upper"], *row["outliers"]]]
     result["encoding"] = {
         category_axis: {"field": "category", "type": "nominal", "sort": None},
         value_axis: {"field": "lower", "type": "quantitative", "title": options["value_title"],
-                     "scale": {"zero": False, "domain": [min(values), max(values)]}}}
+                     "scale": {"zero": False}}}
     result["layer"] = [
-        {"mark": "rule", "encoding": {value_axis + "2": {"field": "upper"}}},
+        {"mark": {"type": "rule"}, "encoding": {value_axis: {"field": "lower", "type": "quantitative"},
+                                                value_axis + "2": {"field": "upper"}}},
         {"mark": {"type": "bar", "filled": False},
-         "encoding": {value_axis: {"field": "q1"}, value_axis + "2": {"field": "q3"}}},
+         "encoding": {value_axis: {"field": "q1", "type": "quantitative"},
+                      value_axis + "2": {"field": "q3"}}},
         {"mark": {"type": "tick", "orient": "vertical" if horizontal else "horizontal"},
-         "encoding": {value_axis: {"field": "median"}}},
-        {"transform": [{"flatten": ["outliers"], "as": ["outlier"]}, {"filter": "isValid(datum.outlier)"}],
-         "mark": "point", "encoding": {value_axis: {"field": "outlier"}}}]
+         "encoding": {value_axis: {"field": "median", "type": "quantitative"}}},
+        {"transform": [{"flatten": ["outliers"]}], "mark": {"type": "point"},
+         "encoding": {value_axis: {"field": "outliers", "type": "quantitative"}}}]
     return format_spec(result)
 
 

@@ -575,7 +575,15 @@ async function renderVariant(job, variant, runtime, options) {
       atomicWrite(files.resized_geometry, jsonText(mapped));
       result.resize = {...transform, png_sha256: sha256(resized.png), validation: mapped.validation};
     }
-    result.status = errors.length ? 'rejected' : warnings.length ? 'review_required' : 'rendered';
+    // An empty flattened outlier layer has no extent of its own. Other layers
+    // still determine the shared scale; keep this diagnostic without rejecting
+    // a valid no-outlier box plot or inventing a point/domain in the target.
+    const emptyOutliers = variant === 'compact' && kind === 'boxplot'
+      && spec.layer?.[3]?.transform?.some(t => t.flatten?.includes('outliers'))
+      && spec.data.values.every(row => Array.isArray(row.outliers) && row.outliers.length === 0);
+    const expectedWarnings = emptyOutliers ? warnings.filter(message => message === 'Infinite extent for field "outliers": [Infinity, -Infinity]') : [];
+    if (expectedWarnings.length) result.expected_warnings = expectedWarnings;
+    result.status = errors.length ? 'rejected' : warnings.some(message => !expectedWarnings.includes(message)) ? 'review_required' : 'rendered';
   } catch (error) {
     errors.push(String(error.stack || error));
   } finally {

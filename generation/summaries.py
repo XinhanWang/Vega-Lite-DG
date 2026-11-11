@@ -2,6 +2,7 @@
 from pathlib import Path
 from decimal import Decimal
 import math
+import re
 
 import numpy as np
 
@@ -12,7 +13,7 @@ from .styles import canvas
 
 
 def canonical_numbers(value):
-    """Remove binary float noise at twelve significant digits, retaining small values."""
+    """Clean repeated binary tails within one ULP, without a precision ceiling."""
     if isinstance(value, dict):
         return {key: canonical_numbers(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -20,7 +21,14 @@ def canonical_numbers(value):
     if isinstance(value, (float, np.floating)):
         if not math.isfinite(value):
             raise ValueError("Statistical values must be finite")
-        number = float(f"{value:.12g}")
+        number = float(value)
+        fractional = repr(number).split("e")[0].partition(".")[2]
+        if re.search(r"(?:0{6,}|9{6,})\d{0,2}$", fractional):
+            for precision in range(1, 18):
+                candidate = float(format(number, f".{precision}g"))
+                if abs(candidate - number) <= math.ulp(number):
+                    number = candidate
+                    break
         return int(number) if number.is_integer() else number
     return value
 

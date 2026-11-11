@@ -17,6 +17,49 @@ from render_support import render_specs
 
 
 class StatisticalTests(unittest.TestCase):
+    def assert_render_warnings(self, spec, result):
+        layers = spec.get('layer', [])
+        empty = (len(layers) == 4 and layers[-1].get('transform') == [{'flatten': ['outliers']}]
+                 and all(not row['outliers'] for row in spec['data']['values']))
+        expected = ['Infinite extent for field "outliers": [Infinity, -Infinity]'] if empty else []
+        self.assertEqual(result['warnings'], expected)
+
+    def test_box_compact_has_explicit_numeric_types_and_inferred_domain(self):
+        for orientation in ('horizontal', 'vertical'):
+            for mode in ('none', 'natural', 'injected'):
+                cfg = sample_config('boxplot', 42, {'orientation': orientation, 'outlier_mode': mode})
+                full, target, source = build_pair('boxplot', cfg)
+                axis = 'x' if orientation == 'horizontal' else 'y'
+                self.assertEqual(target['encoding'][axis]['scale'], {'zero': False})
+                self.assertEqual([layer['mark']['type'] for layer in target['layer']], ['rule', 'bar', 'tick', 'point'])
+                self.assertEqual(target['layer'][3]['transform'], [{'flatten': ['outliers']}])
+                self.assertEqual(target['layer'][3]['encoding'][axis]['field'], 'outliers')
+                for layer in target['layer']:
+                    for channel, encoding in layer.get('encoding', {}).items():
+                        self.assertIn(channel, (axis, axis + '2'))
+                        if channel == axis:
+                            self.assertEqual(encoding['type'], 'quantitative')
+                        else:
+                            self.assertEqual(set(encoding), {'field'})
+                validate_target(target)
+
+    def test_no_outlier_boxes_render_with_automatic_axis_extent(self):
+        specs = []
+        for orientation in ('horizontal', 'vertical'):
+            cfg = sample_config('boxplot', 42, {'orientation': orientation, 'outlier_mode': 'none'})
+            full, target, source = build_pair('boxplot', cfg)
+            for index, row in enumerate(target['data']['values']):
+                row['row_id'] = str(index)
+            specs.append(target)
+        for axis, spec, result in zip(('x', 'y'), specs, render_specs(specs)):
+            self.assert_render_warnings(spec, result)
+            domain = result['scales'][axis]['domain']
+            rows = spec['data']['values']
+            self.assertLessEqual(min(domain), min(row['lower'] for row in rows))
+            self.assertGreaterEqual(max(domain), max(row['upper'] for row in rows))
+            self.assertEqual(sum(mark['name'].startswith('layer_1_') for mark in result['marks']), len(rows))
+            self.assertFalse(any(mark['marktype'] == 'symbol' for mark in result['marks']))
+
     def test_pipeline_preserves_compact_v4_preview_separation(self):
         import tempfile
         from pipeline import produce, write_render_jobs
@@ -210,8 +253,8 @@ class StatisticalTests(unittest.TestCase):
                     row['row_id'] = str(index)
                 specs.append(spec)
                 cases.append((kind, cfg))
-        for (kind, cfg), result in zip(cases, render_specs(specs)):
-            self.assertEqual(result['warnings'], [])
+        for (kind, cfg), spec, result in zip(cases, specs, render_specs(specs)):
+            self.assert_render_warnings(spec, result)
             if kind == 'pie':
                 arcs = [mark for mark in result['marks'] if mark['marktype'] == 'arc']
                 self.assertEqual([mark['datum']['category'] for mark in arcs], cfg['categories'])
@@ -263,8 +306,8 @@ class StatisticalTests(unittest.TestCase):
                                ('boxplot', {'orientation': 'vertical', 'outlier_mode': 'injected'})):
             full, target, source = build_pair(kind, sample_config(kind, 14, controls))
             specs.extend((full, target, render_spec(target)))
-        for result in render_specs(specs):
-            self.assertEqual(result['warnings'], [])
+        for spec, result in zip(specs, render_specs(specs)):
+            self.assert_render_warnings(spec, result)
             self.assertIn('<svg', result['svg'])
 
 

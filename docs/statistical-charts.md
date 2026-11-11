@@ -22,7 +22,9 @@ and values remain observable through labels or legends.
 Box sampling retains 64 base observations per category, with two additional
 observations in injected mode. Quartiles use Type-7 linear interpolation and
 Tukey 1.5×IQR fences. Decimal arithmetic avoids binary floating-point tails
-without rounding legitimate interpolated values such as `31.7825`. `lower` and
+without rounding legitimate interpolated values such as `31.7825`. Number
+cleanup only shortens repeated binary tails within one ULP; it has no fixed
+decimal-place or significant-digit limit. `lower` and
 `upper` are actual observations inside the fences; outliers are sorted and
 kept separately. Audit observations stay in config.json, never in training GT.
 
@@ -35,8 +37,16 @@ kept separately. Audit observations stay in config.json, never in training GT.
 - Box: `category/lower/q1/median/q3/upper/outliers`. Exactly four layers draw
   whiskers (`rule`), boxes (`bar`), medians (`tick`) and outliers (`point`).
   Category order follows the table; x/y mappings and tick orientation preserve
-  chart direction. Shared numeric bounds include whiskers and every outlier.
-  Empty outlier arrays require no dummy points. Hollow boxes keep medians visible
+  chart direction. Every layer's primary numeric channel explicitly declares
+  `type:"quantitative"`. Secondary `x2/y2` channels inherit that type: the official
+  Vega-Lite Schema forbids `type` on secondary field definitions. The shared
+  numeric scale keeps `zero:false` and infers its domain from
+  all layers, including whiskers and outliers; no domain is stored in the GT.
+  A single `flatten:["outliers"]` uses the original field without an alias or
+  redundant validity filter. Empty outlier arrays require no dummy points.
+  Vega's empty-layer extent warning is retained as an expected diagnostic only
+  when every outlier array is empty; other warnings still require review.
+  Hollow boxes keep medians visible
   under Vega-Lite defaults; no sampled font, color or size enters compact.
 - Full and compact are built from the same normalized statistics. The bounded
   compact-v4 validator rejects extra data fields, presentation settings, incorrect
