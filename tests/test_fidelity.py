@@ -1,12 +1,10 @@
-"""Actual native display state must survive conversion without changing labels/data."""
+"""Saved presentation metadata and visible styling survive native Vega conversion."""
 import copy
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from adapter import build_pair
-from native import recover_presentation
 from test_adapter import fixture
 from text_layout import apply_text_layout, audit_text
 
@@ -22,7 +20,7 @@ class FidelityTests(unittest.TestCase):
         cfg['x_rotation']=0
         self.assertEqual(build_pair('barv_1',cfg)[1],compact)
 
-    def test_native_precision_offset_roles_grid_and_legend(self):
+    def test_saved_precision_offset_roles_grid_and_legend(self):
         cfg=fixture('scatter_1')
         face={'family':'DejaVu Sans','weight':400,'style':'normal','size':11,'rotation':0,'align':'center'}
         cfg['_render_axes']={'xticks':[-1,0,1], 'xticklabels':['−0.10','0.00','0.10'], 'x_offset_text':'1e1',
@@ -55,37 +53,6 @@ class FidelityTests(unittest.TestCase):
         full,_,_=build_pair('scatter_1',cfg)
         self.assertEqual(full['usermeta']['plot_layout']['source_dimensions'],{'width':432.0,'height':288.0})
 
-    def test_replay_refuses_changed_data_or_ticks(self):
-        cfg=fixture('scatter_1'); cfg['_render_axes']={'xticks':[0,1]}
-        wrong=copy.deepcopy(cfg);wrong['x'][0]+=1
-        with patch('native.generate_native',return_value={'config':wrong}):
-            with self.assertRaisesRegex(ValueError,'configuration'):
-                recover_presentation('scatter_1',cfg,{'seed':1})
-        wrong=copy.deepcopy(cfg);wrong['_render_axes']['xticks']=[0,2]
-        with patch('native.generate_native',return_value={'config':wrong}):
-            with self.assertRaisesRegex(ValueError,'xticks'):
-                recover_presentation('scatter_1',cfg,{'seed':1})
-
-    def test_native_text_capture_resolves_pinned_face(self):
-        import matplotlib
-        import matplotlib.pyplot as plt
-        from matplotlib.font_manager import FontProperties
-        from native import _axes_snapshot
-        face=Path(matplotlib.get_data_path())/'fonts/ttf/DejaVuSerif-Bold.ttf'
-        fig,ax=plt.subplots()
-        try:
-            ax.set_title('Pinned bold',fontproperties=FontProperties(fname=face),weight='normal',style='italic')
-            ax.plot([0,1],[0,1],label='Example');ax.legend(loc='upper right')
-            ax.grid(axis='x');fig.canvas.draw()
-            capture=_axes_snapshot(ax,fig)
-            self.assertEqual(capture['text_styles']['title']['weight'],700)
-            self.assertEqual(capture['text_styles']['title']['style'],'normal')
-            self.assertEqual(capture['legend']['anchor'],'top-right')
-            self.assertEqual(capture['grid_visible'],{'x':True,'y':False})
-        finally:
-            plt.close(fig)
-
-
     def test_layered_plot_background_reaches_actual_svg(self):
         import json, os, subprocess, shutil
         if not os.environ.get('VSR_TEXT_TEST_MODULES') or not shutil.which('node'):
@@ -94,8 +61,8 @@ class FidelityTests(unittest.TestCase):
         full,_,_=build_pair('scatter_1',cfg)
         js = """
 const fs=require('fs'),path=require('path'),{createRequire}=require('module');
-const req=createRequire(path.resolve(process.env.VSR_TEXT_TEST_MODULES,'__fidelity.cjs'));
-(async()=>{const v=await import(req.resolve('vega')),vl=await import(req.resolve('vega-lite'));
+const {pathToFileURL}=require('url');const req=createRequire(path.resolve(process.env.VSR_TEXT_TEST_MODULES,'__fidelity.cjs'));
+(async()=>{const v=await import(pathToFileURL(req.resolve('vega'))),vl=await import(pathToFileURL(req.resolve('vega-lite')));
 const spec=JSON.parse(fs.readFileSync(0,'utf8'));const view=new v.View(v.parse(vl.compile(spec).spec),{renderer:'none'});
 await view.runAsync();process.stdout.write(await view.toSVG());view.finalize();})();
 """

@@ -72,7 +72,7 @@ class AdapterTests(unittest.TestCase):
         self.assertIn('"0":"repeat","1":"repeat"', enc["x"]["axis"]["labelExpr"])
         self.assertIn('"s000":"repeat","s001":"repeat"', enc["color"]["legend"]["labelExpr"])
 
-    def test_source_data_ori_matches_upstream_collect_order(self):
+    def test_source_data_ori_retains_observations_in_visual_order(self):
         for kind in KINDS:
             with self.subTest(kind=kind):
                 cfg = fixture(kind)
@@ -89,6 +89,12 @@ class AdapterTests(unittest.TestCase):
                 else:
                     expected = [[cfg["series_names"][s], cfg["x"][i], cfg["y"][i]]
                                 for s, (start, count) in enumerate(zip(cfg["starts"], cfg["counts"])) for i in range(start, start + count)]
+                # The fixture's horizontal y axis increases upward; its visible
+                # category/group order is therefore the reverse of source order.
+                if kind.startswith("barh"):
+                    expected.reverse()
+                elif kind == "barv_stack":
+                    expected = [expected[index] for index in (1, 0, 3, 2, 5, 4)]
                 self.assertEqual(source["data_ori"], expected)
 
     def test_native_scientific_offset_is_not_lost(self):
@@ -136,8 +142,8 @@ class AdapterTests(unittest.TestCase):
         cfg["bottoms"] = [[2, 7, 0], [11, -5, 3]]
         full, compact, source = build_pair("barv_stack", cfg)
         self.assertEqual([(r["value_lower"], r["value_upper"]) for r in source["rows"]],
-                         [(2, 3), (11, 15), (7, 4), (-5, 0), (0, 0), (3, 5)])
-        self.assertEqual([r["plot_y"] for r in source["rows"]], [2.5, 13, 5.5, -2.5, 0, 4])
+                         [(11, 15), (2, 3), (7, 4), (-5, 0), (3, 5), (0, 0)])
+        self.assertEqual([r["plot_y"] for r in source["rows"]], [13, 2.5, 5.5, -2.5, 4, 0])
         self.assertEqual(compact["layer"][0]["encoding"]["y"]["stack"], None)
         self.assertEqual(compact["layer"][0]["encoding"]["y2"], {"field": "plot_y1"})
 
@@ -145,7 +151,7 @@ class AdapterTests(unittest.TestCase):
         cfg = fixture("barv_stack")
         cfg.update(matrix=[[25, 20, 40], [75, 80, 60]], bottoms=[[0, 0, 0], [25, 20, 40]], stack_mode="percent")
         _, compact, source = build_pair("barv_stack", cfg)
-        self.assertEqual([r["value_upper"] for r in source["rows"]], [25, 100, 20, 100, 40, 100])
+        self.assertEqual([r["value_upper"] for r in source["rows"]], [100, 25, 100, 20, 100, 40])
         self.assertEqual(source["semantic"]["stack_mode"], "percent")
         self.assertNotIn('"normalize"', json.dumps(compact))
 
@@ -153,7 +159,7 @@ class AdapterTests(unittest.TestCase):
         cfg = fixture("barh_1")
         cfg["xerr"] = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
         _, compact, source = build_pair("barh_1", cfg)
-        self.assertEqual([(r["error_lower"], r["error_upper"]) for r in source["rows"]], [(0.9, 1.4), (-3.2, -2.5), (-0.3, 0.6)])
+        self.assertEqual([(r["error_lower"], r["error_upper"]) for r in source["rows"]], [(-0.3, 0.6), (-3.2, -2.5), (0.9, 1.4)])
         interval = next(layer for layer in compact["layer"] if layer["name"] == "error_interval_0")
         self.assertEqual(interval["encoding"]["x"]["field"], "error_lower")
         self.assertEqual(interval["encoding"]["x2"]["field"], "error_upper")
@@ -167,7 +173,7 @@ class AdapterTests(unittest.TestCase):
                 _, compact, source = build_pair("line_1", cfg)
                 self.assertEqual([r["plot_x"] for r in source["rows"]], [0, 1, 2])
                 enc = compact["layer"][0]["encoding"]["x"]
-                self.assertEqual(enc["axis"]["values"], [0, 2])
+                self.assertEqual(enc["axis"]["values"], [0, 1, 2])
                 self.assertIn(labels[0], enc["axis"]["labelExpr"])
                 if mode == "temporal":
                     self.assertEqual([r["x_temporal"] for r in source["rows"]], ["2024-01-01", "2024-02-01", "2024-03-01"])

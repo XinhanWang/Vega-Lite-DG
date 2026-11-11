@@ -1,36 +1,30 @@
-"""Minimal, independently renderable training GT for VSR's nine chart kinds.
+"""Compact, independently renderable training targets for nine chart kinds.
 
-Contract
---------
-``normalize(full)`` projects the adapter's rich observation table into ordinary
-Vega-Lite: category/value[/series] for bars and x/y[/series] for lines/scatter.
-Only measured error endpoints add lower/upper. No IDs, pixel geometry, source
-domains, typography, per-series layers, or provenance enter training targets.
-Calendar-period line labels remain an ordered discrete axis, as in VSR.
+Observation tables follow image reading order. Categorical and series encodings
+use sort:null; numerical scale reversal remains explicit. All categorical line
+labels are required, and hidden legends use stable English Series 1, Series 2,
+... identifiers instead of labels that cannot be read in the image.
 
-Repeated display names are the one identity exception: the ambiguous field uses
-an integer key, with a labelExpr containing its original labels. This uses no
-extra data column, never changes the labels, and keeps distinct source slots.
-``project_rows(full)`` and ``semantic_rows(minimal)`` return equal ordered lists
-of canonical observation dictionaries. They decode these keys back to labels,
-adding category_instance/x_instance/series_instance only for ambiguous names.
-Thus callers can compare lists to audit source order, or Counters of canonical
-JSON to audit multisets. Duplicate scatter observations are never deduplicated.
+Bars contain category/value/series and lines/scatter contain x/y/series. Error
+intervals add lower/upper. Ordinary stacks use stack_order to preserve their
+baselines after top-to-bottom table ordering; arbitrary or crossing stacks use
+measured start/end instead. Nonmonotonic paths add path_order only when visible
+x order would otherwise connect different observations. These are semantic
+fields, not pixels or styling.
 
-Source data order is retained verbatim. A non-increasing numeric line or a line
-whose series visit categories in different orders uses mark.order=false, so
-Vega connects the original per-series sequence without an extra row index.
-Stack order uses category as an ordinal key: all keys within a category are
-equal, so Vega's stable sort keeps the source series order without a new column.
-
-Already-minimal inputs are returned as independent copies. This function is an
-adapter projection, not a general optimizer for arbitrary Vega-Lite programs.
+Repeated display names use integer keys and literal label expressions without
+merging identities. project_rows(full) and semantic_rows(compact) return equal
+ordered canonical rows, with *_instance audit fields only for ambiguous names.
+Duplicate observations are retained. Already-compact inputs are copied unchanged.
 """
 from __future__ import annotations
 
+from collections import Counter
 import copy
 import json
 from typing import Any
+
+from ordering import first_seen, needs_path_order, needs_stack_endpoints, visual_rows
 
 
 KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack",
@@ -73,16 +67,20 @@ def _context(full: dict) -> dict:
     semantic = _semantic(full)
     if semantic is None or semantic["kind"] not in KINDS:
         raise ValueError("Expected an adapter full spec for one of the nine VSR chart kinds")
-    rows = full["data"]["values"]
-    if not rows:
+    source_rows = full["data"]["values"]
+    if not source_rows:
         raise ValueError("An observation table must not be empty")
     kind = semantic["kind"]
     enc = _primary_encoding(full)
-    series_keys = list(dict.fromkeys(row["series_id"] for row in rows))
-    series_names = {row["series_id"]: row["series_name"] for row in rows}
+    rows = visual_rows(kind, source_rows,
+                       x_reverse=bool((enc.get("x", {}).get("scale") or {}).get("reverse")),
+                       y_reverse=bool((enc.get("y", {}).get("scale") or {}).get("reverse")))
+    series_keys = first_seen(rows, "series_id")
+    visible_legend = enc.get("color", {}).get("legend") not in (None, False)
+    series_names = ({row["series_id"]: row["series_name"] for row in rows} if visible_legend else
+                    {key: f"Series {i + 1}" for i, key in enumerate(series_keys)})
     _, repeated_series = _mapping(series_keys, [series_names[key] for key in series_keys])
-    visible_legend = enc.get("color", {}).get("legend") is not None
-    include_series = len(series_keys) > 1 or visible_legend
+    include_series = True
     category_field = "category" if kind.startswith("bar") else "x" if kind.startswith("line") and semantic.get("x_mode") != "numeric" else None
     category_keys = list(dict.fromkeys(row["category_id"] for row in rows)) if category_field else []
     categories = {row["category_id"]: row["category"] for row in rows} if category_field else {}
@@ -92,6 +90,9 @@ def _context(full: dict) -> dict:
             "series_keys": series_keys, "series_names": series_names,
             "series_index": {key: i for i, key in enumerate(series_keys)},
             "include_series": include_series, "repeated_series": repeated_series,
+            "visible_legend": visible_legend,
+            "path_order": kind.startswith("line") and needs_path_order(rows),
+            "stack_endpoints": kind == "barv_stack" and needs_stack_endpoints(rows),
             "category_field": category_field, "category_keys": category_keys,
             "categories": categories, "category_index": {key: i for i, key in enumerate(category_keys)},
             "repeated_category": repeated_category}
@@ -106,7 +107,7 @@ def _data(context: dict, canonical: bool = False) -> list[dict]:
         else:
             result = {"x": row["x"], "y": row["y"]}
         if context["include_series"]:
-            result["series"] = row["series_name"]
+            result["series"] = context["series_names"][row["series_id"]]
             if context["repeated_series"]:
                 index = context["series_index"][row["series_id"]]
                 result["series_instance" if canonical else "series"] = index
@@ -116,6 +117,13 @@ def _data(context: dict, canonical: bool = False) -> list[dict]:
             result[field + "_instance" if canonical else field] = index
         if "error_lower" in row:
             result.update(lower=row["error_lower"], upper=row["error_upper"])
+        if context["path_order"]:
+            result["path_order"] = row["point_index"]
+        if context["kind"] == "barv_stack":
+            if context["stack_endpoints"]:
+                result.update(start=row["value_lower"], end=row["value_upper"])
+            else:
+                result["stack_order"] = row["series_index"]
         output.append(result)
     return output
 
@@ -129,19 +137,27 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
     result["title"] = title
     if data_type in {"nominal", "ordinal"}:
         result["sort"] = None
+        labels = [context["categories"][key] for key in context["category_keys"]]
+        values = list(range(len(labels))) if context["repeated_category"] else labels
+        result["axis"] = {"values": values, "labelOverlap": False, "labelLimit": 0, "labelBound": False}
     else:
         scale = original.get("scale") or {}
-        if scale.get("type", "linear") != "linear":
-            result["scale"] = {k: scale[k] for k in ("type", "base", "exponent", "constant") if k in scale}
+        semantic_scale = {k: scale[k] for k in ("type", "base", "exponent", "constant")
+                          if k in scale and (k != "type" or scale[k] != "linear")}
+        if scale.get("reverse"):
+            semantic_scale["reverse"] = True
+        if semantic_scale:
+            result["scale"] = semantic_scale
     if context["repeated_category"] and field == context["category_field"]:
-        result["axis"] = {"labelExpr": _expr([context["categories"][key] for key in context["category_keys"]])}
+        result["axis"]["labelExpr"] = _expr([context["categories"][key] for key in context["category_keys"]])
     return result
 
 
 def _series_encoding(context: dict) -> dict:
-    result = {"field": "series", "type": "nominal", "sort": None}
+    result = {"field": "series", "type": "nominal", "sort": None,
+              "legend": {"title": None} if context["visible_legend"] else None}
     if context["repeated_series"]:
-        result["legend"] = {"labelExpr": _expr([context["series_names"][key] for key in context["series_keys"]])}
+        result["legend"]["labelExpr"] = _expr([context["series_names"][key] for key in context["series_keys"]])
     return result
 
 
@@ -179,10 +195,14 @@ def normalize(full: dict) -> dict:
         if kind in {"barh_n", "barv_n"}:
             encoding[category_axis + "Offset"] = {"field": "series", "type": "nominal", "sort": None}
         if kind == "barv_stack":
-            encoding[value_axis]["stack"] = "zero"
-            # Every stack group has one category. Sorting these equal keys is
-            # stable, preserving input series order without a per-row index.
-            encoding["order"] = {"field": "category", "type": "ordinal"}
+            if context["stack_endpoints"]:
+                # Arbitrary baselines and crossing signed stacks cannot be
+                # recreated by Vega's zero-based diverging stack transform.
+                encoding[value_axis].update(field="end", stack=None)
+                encoding[value_axis + "2"] = {"field": "start"}
+            else:
+                encoding[value_axis]["stack"] = "zero"
+                encoding["order"] = {"field": "stack_order", "type": "quantitative"}
         if any("lower" in row for row in result["data"]["values"]):
             interval = {"field": "lower", "type": "quantitative"}
             if kind == "barv_stack":
@@ -198,6 +218,15 @@ def normalize(full: dict) -> dict:
         if context["include_series"]:
             encoding["color"] = _series_encoding(context)
         result["mark"] = ({"type": "line", "order": False} if _needs_input_order(context) else "line") if kind.startswith("line") else "point"
+        if context["path_order"]:
+            result["mark"] = "line"
+            encoding["order"] = {"field": "path_order", "type": "quantitative"}
+        if kind.startswith("line") and 1 in Counter(row["series_id"] for row in context["rows"]).values():
+            # A one-vertex path paints no segment. Keep the primary line mark
+            # for geometry auditing and expose its observations with points.
+            if isinstance(result["mark"], str):
+                result["mark"] = {"type": "line"}
+            result["mark"]["point"] = True
     result["encoding"] = encoding
     return result
 

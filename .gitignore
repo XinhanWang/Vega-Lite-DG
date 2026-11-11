@@ -16,8 +16,15 @@
 !/plot_layout.py
 !/presentation.py
 !/text_layout.py
-!/verify_native.py
 !/render.mjs
+!/ordering.py
+!/generation/
+/generation/*
+!/generation/*.py
+!/generation/words.txt
+!/workflow/
+/workflow/*
+!/workflow/*.py
 !/configs/
 /configs/*
 !/configs/smoke.json
@@ -25,7 +32,7 @@
 !/configs/examples.json
 !/tests/
 /tests/*
-!/tests/test_*.py
+!/tests/*.py
 !/docs/
 /docs/*
 !/docs/*.md
@@ -34,14 +41,6 @@
 !/vendor/VSR/
 /vendor/VSR/*
 !/vendor/VSR/LICENSE
-!/vendor/VSR/chart_generation/
-!/vendor/VSR/data_pipeline/
-/vendor/VSR/chart_generation/*
-!/vendor/VSR/chart_generation/*.py
-!/vendor/VSR/chart_generation/words.txt
-/vendor/VSR/data_pipeline/*
-!/vendor/VSR/data_pipeline/*.py
-
 # Never track credentials, installed packages, downloaded fonts or build caches.
 **/.env
 **/.env.*
@@ -55,3 +54,16 @@
 **/.venv/
 **/.cache/
 **/assets/
+
+# SVG font embedding and reproducible style-reference fixtures.
+!/font_embedding.py
+!/fonts.manifest.json
+!/docs/font-licenses/
+/docs/font-licenses/*
+!/docs/font-licenses/README.md
+!/docs/font-licenses/*.txt
+!/docs/font-licenses/urw-base35-3c0ba3b-source.tar.gz
+!/tests/fixtures/
+/tests/fixtures/*
+!/tests/fixtures/style-canvas-vsr-8b2ca38.json
+!/tests/fixtures/native-1.0-barv-1.json

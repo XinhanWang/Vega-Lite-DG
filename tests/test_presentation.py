@@ -1,6 +1,5 @@
 """Regressions for visible styling without changing the training target."""
 import copy
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,7 +15,9 @@ from adapter import KINDS, build_pair
 from presentation import selected_font
 from test_adapter import fixture
 
-HAS_MPL = importlib.util.find_spec('matplotlib') is not None
+from render_support import font_file
+
+HAS_FONTS = all(font_file(name) for name in ('DejaVuSerif-Bold.ttf', 'DejaVuSans.ttf', 'DejaVuSansMono.ttf'))
 
 
 def styles(full):
@@ -40,13 +41,11 @@ class PresentationTests(unittest.TestCase):
                 self.assertNotEqual(full, changed)
                 self.assertEqual(changed['title']['anchor'], 'end')
 
-    @unittest.skipUnless(HAS_MPL, 'Font-file metadata requires the installed pipeline dependency Matplotlib')
+    @unittest.skipUnless(HAS_FONTS, 'Run bootstrap.py to install the pinned test fonts')
     def test_actual_font_file_overrides_independently_sampled_style_font(self):
-        import matplotlib
-        base = Path(matplotlib.get_data_path()) / 'fonts/ttf'
         cfg = fixture('line_n')
-        cfg['font_path'] = str(base / 'DejaVuSerif-Bold.ttf')
-        cfg['style']['font_path'] = str(base / 'DejaVuSans.ttf')
+        cfg['font_path'] = str(font_file('DejaVuSerif-Bold.ttf'))
+        cfg['style']['font_path'] = str(font_file('DejaVuSans.ttf'))
         full, _, source = build_pair('line_n', cfg)
         self.assertEqual(full['title']['font'], 'DejaVu Serif')
         self.assertEqual(styles(full)['x']['axis']['labelFontWeight'], 700)
@@ -103,38 +102,20 @@ class PresentationTests(unittest.TestCase):
         self.assertNotIn('legendY', legend)
         self.assertEqual(source['presentation']['legend']['chosen'], 'right')
 
-    @unittest.skipUnless(HAS_MPL, 'Native capture requires Matplotlib')
-    def test_native_random_tick_choices_are_captured_without_mutation(self):
-        import matplotlib.pyplot as plt
-        from native import _axes_snapshot
-        fig, ax = plt.subplots()
-        try:
-            ax.tick_params(axis='x', direction='in', length=7, width=1.3, color='#123456')
-            ax.tick_params(axis='y', direction='out', length=4)
-            snapshot = _axes_snapshot(ax, fig)
-            self.assertEqual(snapshot['tick_styles']['x']['direction'], 'in')
-            self.assertEqual(snapshot['tick_styles']['x']['length'], 7)
-            self.assertEqual(snapshot['tick_styles']['x']['width'], 1.3)
-            self.assertEqual(ax.xaxis.get_tick_params()['direction'], 'in')
-        finally:
-            plt.close(fig)
-
-    @unittest.skipUnless(HAS_MPL and os.environ.get('VSR_TEXT_TEST_MODULES') and shutil.which('node'),
+    @unittest.skipUnless(HAS_FONTS and os.environ.get('VSR_TEXT_TEST_MODULES') and shutil.which('node'),
                          'Set VSR_TEXT_TEST_MODULES with the pipeline dependencies for SVG integration')
     def test_official_svg_preserves_fonts_dashes_frames_and_inward_ticks(self):
-        import matplotlib
         from text_layout import audit_text
-        base = Path(matplotlib.get_data_path()) / 'fonts/ttf'
         specifications = []
         for filename, dash, frame, direction in [('DejaVuSansMono.ttf', '--', True, 'in'),
                                                   ('DejaVuSerif-Bold.ttf', ':', False, 'out')]:
             cfg = fixture('line_n')
-            cfg['font_path'] = str(base / filename)
+            cfg['font_path'] = str(font_file(filename))
             cfg['style'].update(grid_style=dash, grid_visible=True, grid_axis='both', legend_frame=frame)
             cfg['_render_axes'] = {'tick_styles': {'x': {'direction': direction, 'length': 6, 'width': 1.2}}}
             specifications.append(build_pair('line_n', cfg)[0])
         cfg = fixture('barh_1')
-        cfg['font_path'] = str(base / 'DejaVuSansMono.ttf')
+        cfg['font_path'] = str(font_file('DejaVuSansMono.ttf'))
         cfg['style'].update(legend_frame=True, legend_loc='upper left', legend_handlelength=1.23)
         specifications.append(build_pair('barh_1', cfg)[0])
         js = r'''

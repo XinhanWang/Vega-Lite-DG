@@ -11,7 +11,7 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import os from 'node:os';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -73,7 +73,7 @@ function resolvePackage(name, candidates) {
 }
 
 function projectFonts(options) {
-  const defaultDirectory = path.join(SCRIPT_DIR, 'vendor', 'VSR', 'chart_generation', 'assets', 'fonts');
+  const defaultDirectory = path.join(SCRIPT_DIR, 'assets', 'fonts');
   const requested = options.fontDirs?.length ? options.fontDirs.map(p => path.resolve(p)) : [defaultDirectory];
   const manifestPath = options.fontManifest ? path.resolve(options.fontManifest) : path.join(SCRIPT_DIR, 'fonts.manifest.json');
   let manifest = null, manifestHash = null;
@@ -105,9 +105,9 @@ function projectFonts(options) {
     directories.push(directory); visit(directory);
   }
   return {directories, files, manifest: manifest ? {file: manifestPath, sha256: manifestHash} : null,
-    system_fallback_enabled: true, canvas_registered: [], canvas_registration_errors: [],
+    system_fallback_enabled: false, canvas_registered: [], canvas_registration_errors: [],
     rasterizer_project_fonts: options.rasterizer === 'resvg',
-    reproducibility_note: 'Project font files are hashed; system fallback remains enabled. Exact glyph fallback and cross-platform font rasterization are not certified.'};
+    reproducibility_note: 'Every text face and cmap are validated; SVG embeds licensed font bytes; resvg uses only decoded SVG bytes via private temporary files with system fonts disabled. Vega layout bounds remain approximate when estimated.'};
 }
 
 async function loadRuntime(options) {
@@ -145,19 +145,41 @@ async function loadRuntime(options) {
   const rp = resolvePackage(rasterName, candidates);
   let rasterize;
   if (options.rasterizer === 'sharp') {
-    const sharp = rp.require(rp.entry);
-    rasterize = async svg => {
-      const result = await sharp(Buffer.from(svg), {density: 72}).png().toBuffer({resolveWithObject: true});
-      return {png: result.data, width: result.info.width, height: result.info.height};
-    };
+    throw new Error('Sharp rejected: byte-only embedded-font rendering with system fonts disabled is unsupported. Use resvg.');
   } else {
     const {Resvg} = rp.require(rp.entry);
+    const fontBuffersFromSvg = svg => [...svg.matchAll(/src:url\("data:font\/(?:otf|ttf);base64,([A-Za-z0-9+/=]+)"\)/g)].map(match => Buffer.from(match[1], 'base64'));
+    // Native resvg 2.6.2 does not support fontBuffers. Materialize only SVG
+    // embedded bytes into a private ephemeral directory; never use project paths.
+    const withEmbeddedFonts = (buffers, callback) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vsr-svg-fonts-'));
+      try {
+        fs.chmodSync(directory, 0o700);
+        const files = buffers.map((bytes,index) => {
+          const file=path.join(directory, `${index}.${bytes.subarray(0,4).toString()==='OTTO'?'otf':'ttf'}`);
+          fs.writeFileSync(file,bytes,{mode:0o600});return file;
+        });
+        return callback(files);
+      } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+    };
+    const probeFont = fonts.files.find(font => font.family === 'DejaVu Sans' && font.weight === 400 && font.style === 'normal');
+    if (!probeFont) throw new Error('Embedded-font capability probe requires pinned DejaVu Sans regular');
+    const probeSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><text x="2" y="30" font-family="DejaVu Sans" font-size="25">Ag</text></svg>';
+    const probe = buffers => withEmbeddedFonts(buffers, fontFiles => {
+      const r=new Resvg(probeSvg,{font:{loadSystemFonts:false,fontDirs:[],fontFiles}});const img=r.render();
+      try{return Buffer.from(img.asPng())}finally{img.free?.();r.free?.()}
+    });
+    if (probe([]).equals(probe([fs.readFileSync(probeFont.file)]))) throw new Error('Resvg cannot load isolated embedded font bytes: refusing fallback');
+    fonts.raster_font_source='SVG data URI bytes decoded to private ephemeral files; system fonts disabled';
     rasterize = async svg => {
-      const renderer = new Resvg(svg, {font: {loadSystemFonts: true, fontDirs: fonts.directories,
-        fontFiles: fonts.files.map(font => font.file)}});
-      const rendered = renderer.render();
-      try { return {png: Buffer.from(rendered.asPng()), width: rendered.width, height: rendered.height}; }
-      finally { rendered.free?.(); renderer.free?.(); }
+      const buffers = fontBuffersFromSvg(svg);
+      if (/<text\b/.test(svg) && !buffers.length) throw new Error('Text SVG has no embedded font bytes');
+      return withEmbeddedFonts(buffers, fontFiles => {
+        const renderer = new Resvg(svg, {font: {loadSystemFonts: false, fontDirs:[], fontFiles}});
+        let rendered;
+        try { rendered=renderer.render(); return {png:Buffer.from(rendered.asPng()),width:rendered.width,height:rendered.height}; }
+        finally { rendered?.free?.();renderer.free?.(); }
+      });
     };
   }
   return {vega, vl, rasterize, provenance: {
@@ -286,7 +308,7 @@ export function collectGeometry(view, canvas, context = {}) {
           anchor: mapPoint([numberOr(item.x) + dx, numberOr(item.y) + dy], transform),
           group_offset: mapPoint([dx, dy], transform), drawable: painted(item, groupOpacity),
           font: item.font || null, font_size_px: numberOr(item.fontSize, 11) * transform.scale_y,
-          font_weight: item.fontWeight || null, angle: numberOr(item.angle), align: item.align || null,
+          font_weight: item.fontWeight || null, font_style: item.fontStyle || null, angle: numberOr(item.angle), align: item.align || null,
           baseline: item.baseline || null});
       }
     }
@@ -502,6 +524,12 @@ async function renderVariant(job, variant, runtime, options) {
     if (/\b(?:d|transform|x|y|x1|x2|y1|y2|width|height|r|cx|cy|points|viewBox)="[^"]*\b(?:NaN|[+-]?Infinity|undefined)\b/.test(canvas.svg)) {
       throw new Error('SVG contains a non-finite geometry attribute');
     }
+    const embedded = spawnSync(process.env.VSR_FONT_PYTHON || 'python3', [path.join(SCRIPT_DIR, 'font_embedding.py')], {
+      input: JSON.stringify({svg:canvas.svg, manifest:options.fontManifest || path.join(SCRIPT_DIR,'fonts.manifest.json')}),
+      encoding:'utf8', maxBuffer:128*1024*1024, timeout:120000, windowsHide:true});
+    if (embedded.error || embedded.status !== 0) throw new Error(`Font embedding failed: ${embedded.error || embedded.stderr}`);
+    const fontResult=JSON.parse(embedded.stdout); canvas.svg=fontResult.svg;
+    result.font_embedding={...fontResult.audit, source_archives:Object.fromEntries(Object.entries(fontResult.audit.source_archives || {}).map(([key,value])=>[key,{...value,base64:undefined}]))};
     const raster = await runtime.rasterize(canvas.svg);
     if (raster.width !== canvas.width || raster.height !== canvas.height) throw new Error('PNG dimensions differ from the explicit integer SVG viewport');
     const geometry = collectGeometry(view, canvas, {id: job.id, variant, image: `${stem}.png`});
@@ -550,6 +578,7 @@ function renderOptions(jobs, options) {
   options = {modules: [], fontDirs: [], rasterizer: 'resvg', size: 1036, resizeMode: 'contain',
     workers: 2, chunkSize: 10, childTimeoutMs: 180000, resume: true, ...options};
   if (!Array.isArray(jobs)) throw new Error('--input must contain a JSON array of jobs');
+  if (options.rasterizer === 'sharp') throw new Error('Sharp rejected: isolated embedded font bytes are unsupported; use resvg.');
   if (!['resvg', 'sharp'].includes(options.rasterizer)) throw new Error('--rasterizer must be resvg or sharp');
   if (!Number.isInteger(options.size) || options.size < 0 || options.size > 16384) throw new Error('--size must be an integer between 0 and 16384');
   if (!['contain', 'stretch'].includes(options.resizeMode)) throw new Error('--resize-mode must be contain or stretch');
@@ -611,7 +640,10 @@ function rendererIdentity(options) {
   const fonts = projectFonts(options);
   const identity = {renderer_sha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))), node: process.version,
     geometry_version: GEOMETRY_VERSION, packages, size: options.size, resize_mode: options.resizeMode,
-    fonts: fonts.files, font_manifest: fonts.manifest, system_font_fallback: true};
+    font_embedding_helper_sha256:sha256(fs.readFileSync(path.join(SCRIPT_DIR,'font_embedding.py'))),
+    fonttools_version:spawnSync(process.env.VSR_FONT_PYTHON || 'python3',['-c','import fontTools; print(fontTools.__version__)'],{encoding:'utf8'}).stdout?.trim(),
+    font_licenses:fs.readdirSync(path.join(SCRIPT_DIR,'docs','font-licenses')).sort().map(name=>({name,sha256:sha256(fs.readFileSync(path.join(SCRIPT_DIR,'docs','font-licenses',name)))})),
+    fonts: fonts.files, font_manifest: fonts.manifest, system_font_fallback: false};
   return {fingerprint: sha256(JSON.stringify(identity)), identity,
     provenance: {node: process.version, vega: packages[0].version, vega_lite: packages[1].version,
       rasterizer: packages[2].name, rasterizer_version: packages[2].version,
@@ -847,7 +879,7 @@ if (isMain) {
   try {
     options = parseArgs(process.argv.slice(2));
     if (options.help) {
-      console.log('Usage: node render.mjs --input jobs.json --out report.json [--modules /path/node_modules] [--size 1036|0] [--resize-mode contain|stretch] [--rasterizer resvg|sharp] [--font-dir /path/fonts] [--font-manifest fonts.manifest.json] [--workers 2] [--chunk-size 10] [--no-resume]\n--target-side is an alias for --size. --modules and --font-dir may be repeated. Defaults: ancestor node_modules, resvg, size 1036, contain, vendor/VSR/chart_generation/assets/fonts. Rendering runs in isolated child processes, with automatic SHA-256-verified resume. Exit: 0 clean, 1 rejected jobs, 2 review warnings, 3 setup/CLI failure.');
+      console.log('Usage: node render.mjs --input jobs.json --out report.json [--modules /path/node_modules] [--size 1036|0] [--resize-mode contain|stretch] [--rasterizer resvg|sharp] [--font-dir /path/fonts] [--font-manifest fonts.manifest.json] [--workers 2] [--chunk-size 10] [--no-resume]\n--target-side is an alias for --size. --modules and --font-dir may be repeated. Defaults: ancestor node_modules, resvg, size 1036, contain, assets/fonts. Rendering runs in isolated child processes, with automatic SHA-256-verified resume. Exit: 0 clean, 1 rejected jobs, 2 review warnings, 3 setup/CLI failure.');
     } else if (options.childConfig) {
       const config = JSON.parse(fs.readFileSync(path.resolve(options.childConfig), 'utf8'));
       options = renderOptions(config.jobs, {...config.options, inProcess: true});

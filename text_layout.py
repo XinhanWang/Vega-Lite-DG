@@ -125,6 +125,8 @@ def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: f
                     continue
                 axis = channel.setdefault("axis", {})
                 axis.update(labelLimit=0, titleLimit=0)
+                if channel.get("type") in {"nominal", "ordinal"}:
+                    axis.update(labelOverlap=False, labelBound=False)
                 size = _number(axis.get("labelFontSize"), _number(config["axis"].get("labelFontSize"), 10))
                 mapping = _mapping(axis.get("labelExpr"))
                 count = len(mapping) if mapping else 0

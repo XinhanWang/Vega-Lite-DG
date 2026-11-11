@@ -1,7 +1,5 @@
 numpy==2.2.5
-matplotlib==3.10.1
-scipy==1.15.2
 Pillow==9.0.1
-tqdm==4.67.1
+fonttools==4.57.0
 jsonschema==4.23.0
 PyYAML==5.4.1

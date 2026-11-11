@@ -29,11 +29,11 @@ class CompactTests(unittest.TestCase):
                 self.assertEqual(len(target["data"]["values"]), len(full["data"]["values"]))
                 self.assertLessEqual(set(target), {"data", "title", "mark", "encoding", "layer"})
                 for row in target["data"]["values"]:
-                    self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper"})
+                    self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper", "path_order", "stack_order", "start", "end"})
                 self.assertEqual(target["encoding"]["x"]["title"], "Sample / time (s)")
                 self.assertEqual(target["encoding"]["y"]["title"], "Response (mg)")
 
-    def test_normal_cases_use_two_or_three_fields(self):
+    def test_ordinary_cases_use_three_fields_and_stacks_keep_geometry(self):
         for kind in sorted(KINDS):
             cfg = fixture(kind)
             if kind.startswith("bar"):
@@ -44,7 +44,8 @@ class CompactTests(unittest.TestCase):
                 cfg["series_names"] = [f"Series {i}" for i in range(len(cfg["series_names"]))]
             full = self.build(kind, cfg)
             target = normalize(full)
-            self.assertTrue(all(2 <= len(row) <= 3 for row in target["data"]["values"]))
+            allowed_count = 5 if kind == "barv_stack" else 3
+            self.assertTrue(all(3 <= len(row) <= allowed_count for row in target["data"]["values"]))
             self.assertNotIn("layer", target)
             self.assertNotIn("labelExpr", json.dumps(target))
 
@@ -66,15 +67,21 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(target["data"]["values"][0], target["data"]["values"][1])
         self.assertEqual(semantic_rows(target), project_rows(full))
 
-    def test_nonmonotonic_numeric_line_preserves_input_order(self):
+    def test_numeric_line_reads_left_to_right_without_changing_connections(self):
         for xs in ([3, 1, 2], [3, 2, 1], [1, 1, 2]):
             cfg = fixture("line_n")
             cfg["x_values"] = xs
-            full = self.build("line_n", cfg)
-            target = normalize(full)
-            self.assertEqual(target["mark"], {"type": "line", "order": False})
-            self.assertEqual([row["x"] for row in target["data"]["values"]], [x for x in xs for _ in range(2)])
-            self.assertFalse(any("order" in row for row in target["data"]["values"]))
+            target = normalize(self.build("line_n", cfg))
+            self.assertEqual([row["x"] for row in target["data"]["values"]], sorted(x for x in xs for _ in range(2)))
+            for series in range(2):
+                rows = [r for r in target["data"]["values"] if r["series"] == series]
+                order = target["encoding"].get("order", {}).get("field")
+                if order:
+                    rows.sort(key=lambda row: row[order])
+                actual = [(r["x"], r["y"]) for r in rows]
+                expected = list(zip(xs, cfg["matrix"][series]))
+                edges = lambda points: {frozenset(pair) for pair in zip(points, points[1:])}
+                self.assertEqual(edges(actual), edges(expected))
 
     def test_normal_numeric_line_needs_no_order_column(self):
         target = normalize(self.build("line_n"))
@@ -101,8 +108,8 @@ class CompactTests(unittest.TestCase):
         cfg.update(matrix=[[25, 20, 40], [75, 80, 60]], bottoms=[[0, 0, 0], [25, 20, 40]], stack_mode="percent")
         target = normalize(self.build("barv_stack", cfg))
         self.assertEqual(target["encoding"]["y"]["stack"], "zero")
-        self.assertEqual(target["encoding"]["order"], {"field": "category", "type": "ordinal"})
-        self.assertEqual([row["value"] for row in target["data"]["values"]], [25, 75, 20, 80, 40, 60])
+        self.assertEqual(target["encoding"]["order"], {"field": "stack_order", "type": "quantitative"})
+        self.assertEqual([row["value"] for row in target["data"]["values"]], [75, 25, 80, 20, 60, 40])
 
     def test_errors_are_explicit_two_layer_intervals(self):
         cfg = fixture("barh_1")
@@ -112,14 +119,14 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(target["layer"][0], {"mark": "bar"})
         self.assertEqual(target["layer"][1]["mark"], "rule")
         self.assertEqual(target["layer"][1]["encoding"], {"x": {"field": "lower", "type": "quantitative"}, "x2": {"field": "upper"}})
-        self.assertEqual([(r["lower"], r["upper"]) for r in target["data"]["values"]], [(0.9, 1.4), (-3.2, -2.5), (-0.3, 0.6)])
+        self.assertEqual([(r["lower"], r["upper"]) for r in target["data"]["values"]], [(-0.3, 0.6), (-3.2, -2.5), (0.9, 1.4)])
 
     def test_nonlinear_scale_parameters_remain_without_layout_domain(self):
         full = self.build("scatter_1")
         for layer in full["layer"]:
             layer["encoding"]["x"]["scale"].update(type="log", base=2, domain=[0.1, 999], reverse=True)
         target = normalize(full)
-        self.assertEqual(target["encoding"]["x"]["scale"], {"type": "log", "base": 2})
+        self.assertEqual(target["encoding"]["x"]["scale"], {"type": "log", "base": 2, "reverse": True})
         self.assertNotIn("scale", target["encoding"]["y"])
 
     def test_style_variations_share_gt(self):
@@ -131,7 +138,7 @@ class CompactTests(unittest.TestCase):
         for layer in changed["layer"]:
             layer["mark"].update(color="red", opacity=0.1, shape="square")
             for axis in ("x", "y"):
-                layer["encoding"][axis]["scale"].update(domain=[-999, 999], reverse=True)
+                layer["encoding"][axis]["scale"].update(domain=[-999, 999])
                 layer["encoding"][axis]["axis"].update(labelColor="blue", values=[9, 99])
         self.assertEqual(normalize(full), normalize(changed))
 
@@ -149,12 +156,13 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(target["title"], labels["title"])
         self.assertEqual(target["encoding"]["x"]["title"], labels["x_title"])
 
-    def test_invisible_single_series_name_is_not_training_content(self):
+    def test_hidden_single_series_uses_default_english_name(self):
         cfg = fixture("line_1")
         cfg["show_legend"] = False
         target = normalize(self.build("line_1", cfg))
-        self.assertNotIn("color", target["encoding"])
-        self.assertTrue(all(set(row) == {"x", "y"} for row in target["data"]["values"]))
+        self.assertIsNone(target["encoding"]["color"]["legend"])
+        self.assertEqual({row["series"] for row in target["data"]["values"]}, {"Series 1"})
+        self.assertTrue(all(set(row) == {"x", "y", "series"} for row in target["data"]["values"]))
 
     def test_label_expressions_handle_unicode_quotes_and_backslashes(self):
         cfg = fixture("barv_n")

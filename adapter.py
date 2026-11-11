@@ -1,17 +1,13 @@
-"""Deterministic VSR configuration -> full and semantic Vega-Lite specifications.
+"""Chart configuration to renderable and semantic Vega-Lite specifications.
 
-The nine upstream generators use numeric Matplotlib positions even for categories
-and calendar periods.  Explicit positions, interval endpoints and tick label
-expressions preserve that contract, including repeated labels, nonuniform numeric
-x, grouped offsets, signed values and already-normalized percentage stacks.
+The native sampler supplies observations, styles and axis choices. Explicit
+positions preserve grouped offsets, stack endpoints, repeated display labels,
+nonuniform numeric x and uncertainty. Observation tables use the same visible
+reading order as compact training targets while keeping stable source IDs.
 
-``data.values`` contains observations only.  Hatch geometry has separate local
-datasets, ``source_row_id`` references, and a reserved decorative layer name.
-``build_pair`` fits the plotting domain around observations and uncertainty before
-rendering. ``normalize`` retains scientific semantics without layout domains or
-pixel geometry. The legacy ``build_geometry_pair`` remains available for native
-geometry audits. Geometry conversion has no third-party dependencies; presentation
-reads font metadata through the already-installed Matplotlib dependency.
+Hatches and reference guides use separate decorative datasets. build_pair fits
+plotting domains and complete text before rendering. build_geometry_pair remains
+a dependency-free entry point for existing configuration and geometry audits.
 """
 from __future__ import annotations
 
@@ -22,13 +18,15 @@ import math
 import re
 from typing import Any
 
+from ordering import first_seen, visual_rows
+
 
 KINDS = (
     "barh_1", "barh_n", "barv_1", "barv_n", "barv_stack",
     "line_1", "line_n", "scatter_1", "scatter_n",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "2.3.0"
+VERSION = "3.0.0"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -64,7 +62,7 @@ def _at(cfg: dict, plural: str, singular: str, index: int, default: Any) -> Any:
 
 def _series_names(kind: str, cfg: dict) -> list[str]:
     if kind in {"barh_1", "barv_1", "scatter_1"}:
-        return [str(cfg.get("series_name", "None"))]
+        return [str(cfg.get("series_name", "Series 1"))]
     names = cfg.get("series_names")
     if names is None:
         count = int(cfg.get("n_series", len(cfg.get("matrix", []))))
@@ -299,11 +297,14 @@ def _axis(cfg: dict, axis: str, kind: str) -> dict:
         ticks = list(range(len(cfg["labels"])))
         tick_labels = cfg["labels"]
     elif kind.startswith("line") and axis == "x":
-        ticks = ticks if ticks is not None else cfg.get("tick_positions")
-        tick_labels = tick_labels if tick_labels is not None else cfg.get("tick_labels")
-        if ticks is None and cfg.get("x_mode") != "numeric":
+        if cfg.get("x_mode", "numeric") != "numeric":
+            # Every category/calendar label is visible. A sampled or legacy
+            # tick subset must never silently remove training evidence.
             ticks = list(range(len(cfg["x_labels"])))
             tick_labels = cfg["x_labels"]
+        else:
+            ticks = ticks if ticks is not None else cfg.get("tick_positions")
+            tick_labels = tick_labels if tick_labels is not None else cfg.get("tick_labels")
     if ticks is not None:
         result["values"] = list(ticks)
     # Numeric Matplotlib labels can be mantissas with an external offset.  Vega
@@ -311,10 +312,14 @@ def _axis(cfg: dict, axis: str, kind: str) -> dict:
     categorical_labels = (kind.startswith("bar") and axis == category_axis) or (
         kind.startswith("line") and axis == "x")
     offset = axes.get(f"{axis}_offset_text", axes.get(f"{axis}offset", ""))
-    if ticks is not None and tick_labels is not None and categorical_labels and not offset:
+    discrete_labels = (kind.startswith("bar") and axis == category_axis) or (
+        kind.startswith("line") and axis == "x" and cfg.get("x_mode", "numeric") != "numeric")
+    if ticks is not None and tick_labels is not None and categorical_labels and (discrete_labels or not offset):
         if len(ticks) == len(tick_labels):
             result["labelExpr"] = _label_expr(ticks, tick_labels)
             result["labelOverlap"] = False
+            result["labelLimit"] = 0
+            result["labelBound"] = False
     return result
 
 
@@ -324,10 +329,14 @@ def _channel(cfg: dict, axis: str, field: str, limits: dict, kind: str) -> dict:
     if scale_type not in {"linear", "log", "symlog", "sqrt", "pow", "time", "utc"}:
         raise ValueError(f"Unsupported source {axis} scale: {scale_type}")
     domain = limits[axis]
+    scale = {"type": scale_type, "domain": sorted(domain), "nice": False}
+    # Logarithmic scales cannot include zero; even zero:false is unsupported
+    # by Vega-Lite and causes an otherwise valid chart to require review.
+    if scale_type != "log":
+        scale["zero"] = False
+    scale["reverse"] = domain[0] > domain[1]
     return {"field": field, "type": "quantitative", "title": cfg.get(f"{axis}_title", ""),
-            "scale": {"type": scale_type, "domain": sorted(domain), "nice": False,
-                      "zero": False, "reverse": domain[0] > domain[1]},
-            "axis": _axis(cfg, axis, kind)}
+            "scale": scale, "axis": _axis(cfg, axis, kind)}
 
 
 def _palette(cfg: dict, names: list[str]) -> list[str]:
@@ -341,7 +350,9 @@ def _palette(cfg: dict, names: list[str]) -> list[str]:
 
 
 def _color(kind: str, cfg: dict, names: list[str]) -> dict:
-    ids = [f"s{i:03d}" for i in range(len(names))]
+    indices = cfg.get("_series_order", list(range(len(names))))
+    ids = [f"s{i:03d}" for i in indices]
+    ordered_names = [names[i] for i in indices]
     show_legend = cfg.get("show_legend", kind.endswith("_n") or kind == "barv_stack")
     legend: dict | None = None
     if show_legend:
@@ -352,13 +363,14 @@ def _color(kind: str, cfg: dict, names: list[str]) -> dict:
             "lower right": "bottom-right", "lower left": "bottom-left",
             "center left": "left", "best": "top-right",
         }.get(loc, "right")
-        legend = {"title": None, "labelExpr": _label_expr(ids, names),
+        legend = {"title": None, "labelExpr": _label_expr(ids, ordered_names),
                   "values": ids, "orient": orient,
                   "labelFontSize": style.get("legend_size", 10),
                   "labelColor": style.get("text_color", "#222222"),
                   "columns": style.get("legend_ncol", 1)}
-    return {"field": "series_id", "type": "nominal", "sort": ids,
-            "scale": {"domain": ids, "range": _palette(cfg, names)}, "legend": legend}
+    palette = _palette(cfg, names)
+    return {"field": "series_id", "type": "nominal", "sort": None,
+            "scale": {"domain": ids, "range": [palette[i] for i in indices]}, "legend": legend}
 
 
 def _polygon(sides: int, rotation: float = -math.pi / 2, inner: float | None = None) -> str:
@@ -424,7 +436,7 @@ def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limit
             enc["y"]["stack"] = None
             mark = {"type": "bar", "clip": True, "opacity": opacity,
                     "stroke": _at(cfg, "edgecolors", "edgecolor", s, _palette(cfg, names)[s]),
-                    "strokeWidth": cfg.get("linewidth", 1)}
+                    "strokeWidth": _at(cfg, "linewidths", "linewidth", s, 1)}
             layers.append({"name": f"bars_{s}", "transform": selected, "mark": mark, "encoding": enc})
             if any(r["series_index"] == s and "error_lower" in r for r in rows):
                 horizontal = kind.startswith("barh")
@@ -595,7 +607,7 @@ def _reference_layers(kind: str, cfg: dict, limits: dict, width: float, height: 
         if value < lower - fringe or value > upper + fringe:
             continue
         result.append({"name": f"reference_{axis}_{i}", "data": {"values": [{"reference_value": value}]},
-                       "mark": {"type": "rule", "clip": True, "strokeWidth": 1, "opacity": 0.4,
+                       "mark": {"type": "rule", "clip": True, "strokeWidth": 1, "opacity": 0.45 if kind.startswith("bar") else 0.35,
                                 "color": cfg.get("style", {}).get("text_color", "#222222")},
                        "encoding": {axis: _channel(cfg, axis, "reference_value", limits, kind)}})
     return result
@@ -604,11 +616,10 @@ def _reference_layers(kind: str, cfg: dict, limits: dict, width: float, height: 
 def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> tuple[dict, dict, dict]:
     """Return independently renderable full/compact specs and canonical evidence.
 
-    ``cfg['_render_axes']`` may contain final Matplotlib xlim/ylim, xticks/
-    yticks, xticklabels/yticklabels, xscale/yscale and aspect.  Native renderer
-    diagnostics supply native styling and inversion choices. ``fit_to_data``
-    expands unsafe domains before constructing marks and hatch geometry; the
-    default preserves original domains for legacy geometry audits.
+    ``cfg['_render_axes']`` retains the existing configuration schema for axis
+    limits, ticks, scales, inversion and aspect. No external plotting library
+    is involved. ``fit_to_data`` expands unsafe domains before constructing
+    marks and hatch geometry; the default retains supplied domains for audits.
     """
     if kind not in KINDS:
         raise ValueError(f"Unsupported chart kind {kind!r}; expected one of {KINDS}")
@@ -636,7 +647,15 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
         from plot_layout import fit_plot_layout
         limits, width, height, layout_audit = fit_plot_layout(
             kind, cfg, rows, limits, width, height, layers=layers)
-        layers = _main_layers(kind, cfg, rows, names, limits)
+    rows = visual_rows(kind, rows, x_reverse=limits["x"][0] > limits["x"][1],
+                       y_reverse=limits["y"][0] > limits["y"][1])
+    cfg["_series_order"] = first_seen(rows, "series_index")
+    if not cfg.get("show_legend", kind.endswith("_n") or kind == "barv_stack"):
+        for visible_index, source_index in enumerate(cfg["_series_order"]):
+            names[source_index] = f"Series {visible_index + 1}"
+        for row in rows:
+            row["series_name"] = names[row["series_index"]]
+    layers = _main_layers(kind, cfg, rows, names, limits)
     decoration, decoration_count = _hatch_layers(kind, cfg, rows, names, limits, width, height)
     layers.extend(decoration)
     layers.extend(_reference_layers(kind, cfg, limits, width, height))
@@ -648,13 +667,15 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
         "y_mode": "categorical" if kind.startswith("barh") else "numeric",
         "grouping": "stacked" if kind == "barv_stack" else "grouped" if kind in {"barh_n", "barv_n"} else "series",
         "stack_mode": cfg.get("stack_mode"),
-        "category_order": [f"c{i:04d}" for i in range(len(cfg.get("labels", cfg.get("x_labels", []))))],
-        "series_order": [f"s{i:03d}" for i in range(len(names))],
+        "category_order": first_seen(rows, "category_id") if "category_id" in rows[0] else [],
+        "series_order": first_seen(rows, "series_id"),
+        "table_order": "horizontal categories top-to-bottom; other categories/x left-to-right; groups follow positions, stacks top-to-bottom, lines retain series order",
+        "source_identity": "row_id, point_index and series_index retain source identity after visual ordering",
         "coordinate_contract": "Explicit source positions; labelExpr supplies category/calendar labels; no implicit aggregation or restacking.",
         "equal_unit_aspect": bool(equal_aspect),
     }
     if cfg.get("x_mode") == "temporal":
-        semantic["temporal_spacing"] = "equal calendar periods, as rendered by VSR; x_temporal stores ISO period starts"
+        semantic["temporal_spacing"] = "equal calendar periods; x_temporal stores ISO period starts"
     full = {
         "$schema": SCHEMA, "description": (
             f"VSR-inspired {kind}: complete observations and uncertainty with fitted plotting domains"
@@ -673,9 +694,9 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
     capability = [
         {"feature": "observations_and_identity", "status": "preserved", "detail": "One stable row_id per source observation; names are display labels, never grouping keys."},
         {"feature": "source_geometry", "status": "preserved", "detail": "Explicit grouped positions, stack endpoints, line order, numeric domains and optional error intervals."},
-        {"feature": "native_styling", "status": "approximate", "detail": "Vega/Matplotlib font metrics, physical mark sizes, layout and legend placement differ; this is not pixel-identical."},
+        {"feature": "native_styling", "status": "preserved", "detail": "Sampled colors, markers, line styles, fonts, grids and guide preferences are rendered directly with Vega-Lite."},
         {"feature": "render_time_axes", "status": "preserved" if _native(cfg) else "unavailable",
-         "detail": "Final native axes diagnostics used." if _native(cfg) else "cfg alone omits random render-time axis inversion, tick selection and equal-aspect adjustments."},
+         "detail": "Explicit sampled axis settings used." if _native(cfg) else "Default axis settings derived from the supplied observations."},
     ]
     if decoration_count:
         capability.append({"feature": "hatches", "status": "approximate", "detail": "Deterministic clipped rule/symbol overlays; local decorative data is excluded from observation GT and compact specs."})
@@ -686,7 +707,7 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
         "row_count": len(rows), "rows": copy.deepcopy(rows),
         "data_ori": [[r["series_name"], r["x"], r["y"]] if not kind.startswith("barh") else
                      [r["series_name"], r["category"], r["value"]] for r in rows],
-        "series": [{"series_id": f"s{i:03d}", "series_index": i, "name": name} for i, name in enumerate(names)],
+        "series": [{"series_id": f"s{i:03d}", "series_index": i, "name": names[i]} for i in cfg["_series_order"]],
         "title": cfg.get("title", ""), "x_title": cfg.get("x_title", ""), "y_title": cfg.get("y_title", ""),
         "semantic": copy.deepcopy(semantic), "axes": {"x": {"limits": limits["x"], "title": cfg.get("x_title", "")},
                                         "y": {"limits": limits["y"], "title": cfg.get("y_title", "")}},
@@ -718,7 +739,7 @@ def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     full['usermeta']['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     compact = normalize(full)
-    source['training_contract'] = 'compact-v2: observations, variables, units, mark, grouping and uncertainty only'
+    source['training_contract'] = 'compact-v3: visible table order, null discrete sorting, complete category labels, explicit exceptional path/stack order'
     return full, compact, source
 
 

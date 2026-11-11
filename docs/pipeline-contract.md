@@ -1,110 +1,109 @@
-# 科学图表数据生产管线：精简训练 GT v2
+# 生成、GT 与渲染约定
 
-部署位置：`h.pjlab.org.cn:/mnt/shared-storage-user/mineru2-shared/users/wangxinhan/proj/data_generation/vsr_v1`。
+当前生成器为 `vega-lite-native/1.0`，GT 合约为 `compact-v3`。样本经过“数据/样式采样 → 完整 Vega-Lite → 精简 GT → 两份独立渲染 → 质量门 → 训练导出”。Matplotlib 与 VSR 原生图像不再参与新样本生成。
 
-管线借鉴 VSR 的参数化采样和样式多样化设计，首版覆盖其对应的九种图表结构。训练任务是“图表图像 → 保留数据与科学含义的精简 Vega-Lite JSON”：识别数值、类别、系列、变量单位、分组/堆叠和误差关系。字体、颜色、布局及内部像素几何不属于训练目标。
+## 采样接口
 
-`chart.png` 从同目录 `full.vl.json` 实际渲染；训练标签是 `compact.py` 确定性生成的 `compact.vl.json`。完整规格负责绘图多样性，精简规格负责统一语义表达。原生 VSR 的 `native.png`、配置和标注继续保存，供溯源与审计使用。
+```python
+from generation import generate_chart
+from adapter import build_pair
 
-## 使用
-
-以下命令在服务器本目录执行，使用 Python 3.10、父目录固定 Node 24.11 及 node_modules。生成不需要 GPU 或 LLM API。
-
-```sh
-python3 bootstrap.py
-python3 pipeline.py generate --config configs/smoke.json --output runs/my_smoke
-python3 pipeline.py generate --config configs/production.json --output runs/my_production
-python3 pipeline.py validate --output runs/my_production
+sample = generate_chart("line_n", 20261110, "runs/example/sample", {
+    "point_count": 12,
+    "series_count": 3,
+    "x_mode": "categorical",
+    "show_legend": False,
+})
+full, compact, source = build_pair("line_n", sample["config"])
 ```
 
-输出目录必须为空。`counts` 是候选数；生产配置默认每类 50 个。未通过质量门的样本进入 `rejected.jsonl`，生成命令返回非零。训练仅使用 `manifest.jsonl` / `train.jsonl`。同配置恢复可给 `generate` 加 `--resume`；新配置使用新目录，不在同一运行目录并发启动作业。
+`generate_chart` 只采样并保存 `config.json` 与 `sampling.json`，返回 `config`、`sample_seed` 和 `diagnostics`。它不创建图片。已有上述采样文件时拒绝覆盖。`build_pair` 不修改输入配置；完整 JSON 的 `data.values` 与 `source.rows` 是同一套观察。
 
-既有数据可用新规范重新生成两份规格和图像，保留旧运行目录：
+`generation/controls.py` 声明九种图表、各图族的数据分布和样式 profile。`common.py` 持有每样本独立的 Python/NumPy 随机源；`labels.py`、`styles.py`、`bars.py`、`lines.py`、`scatter.py` 分别处理文本、样式和图族数据；`core.py` 组合采样并记录坐标选择。新版本无需通过绘图后的随机状态捕获决定图表内容。
 
-```sh
-python3 pipeline.py reproject --source runs/examples_final --output runs/examples_compact_v2_final
-python3 pipeline.py reproject --source runs/production_20261109 --output runs/production_compact_v2
-python3 pipeline.py validate --output runs/examples_compact_v2_final
-python3 build_gallery.py --run runs/examples_compact_v2_final --output publication_compact_v2 --destination https://aicarrier.feishu.cn/wiki/KGpowD0rZidn2xkqOwHcTGVAnWd
-```
-
-`reproject` 读取保存的配置并复制原生审计文件，不重新采样。加 `--prepare-only` 可只准备规格和 `render-jobs.json`，随后单独渲染与验证。上述 v2 目录是新版交付使用的路径；运行是否完成及接受数量以各目录实际报告为准。
-
-适配器 2.1 默认在 `generate` 和 `reproject` 两个入口启用生成阶段的防裁切布局。可在独立目录验证旧数据：
-
-```sh
-python3 pipeline.py reproject --source runs/production_compact_v2 --output runs/production_no_clip_v3
-```
-
-```sh
-../.runtime/node render.mjs --input runs/production_compact_v2/render-jobs.json --out runs/production_compact_v2/render-report.json --target-side 1036
-python3 pipeline.py validate --output runs/production_compact_v2
-python3 -m unittest discover -s tests -v
-```
-
-## 图表与配置
-
-| 类型键 | 图表结构 |
+| 控制 | 适用范围与含义 |
 |---|---|
-| `barh_1` / `barh_n` | 单/多系列横向柱状图 |
-| `barv_1` / `barv_n` | 单/多系列纵向柱状图 |
-| `barv_stack` | 绝对值/百分比堆叠纵柱 |
-| `line_1` / `line_n` | 单/多折线；分类、等间隔时间标签或数值 x |
-| `scatter_1` / `scatter_n` | 单/多散点 |
+| `category_count` | 柱图类别数 |
+| `point_count` | 折线每条线的点数；散点总点数 |
+| `series_count` | `_1` 固定为 1；普通 `_n` 为 2–5；堆叠为 2–6 |
+| `family` | 必须属于该类型在 `FAMILIES` 中声明的数据族 |
+| `profile` | 声明的视觉 profile；`dense_scatter_family` 仅用于散点 |
+| `x_mode` | 折线的 `numeric` / `categorical` / `temporal` |
+| `stack_mode` | 堆叠柱图的 `absolute` / `percent` |
+| `show_error` | 非堆叠柱图误差棒，布尔值 |
+| `hatch` | 柱形纹理：null、`/`、`\`、`|`、`-`、`+`、`x`、`o`、`O`、`.`、`*` |
+| `show_legend` | 是否显示图例，布尔值 |
+| `x_inverted` / `y_inverted` | 坐标反向，布尔值 |
+| `x_scale` / `y_scale` | `linear` / `log` / `symlog` / `sqrt`；数据与尺度必须兼容 |
+| `reference_lines` | `[{"axis": "x"或"y", "value": 有限数值}]` |
+| `style` | 样式字典覆盖 |
 
-JSON/YAML 配置字段：`seed`、`counts`、`controls`、`workers`、`native`、`postprocess_native`、`target_side`。`controls.all` 为公共控制，`controls.<类型键>` 覆盖它。支持 `category_count`、`point_count`、`series_count`、`family`、`x_mode`、`stack_mode`、`profile`、`style`、`show_error`、`hatch`、`max_attempts`。
+`scatter_n.point_count` 在 `4 × series_count + 4` 到 48 之间，表示所有系列合计。类别坐标必须使用线性位置尺度；对数轴要求有效正值，平方根轴要求非负值。无效组合明确报错，不隐式丢弃观察。
 
-`scatter_n.point_count` 是全部系列的总点数，范围 12–48，且至少 `4 * series_count + 4`；折线 point_count 为每系列点数。可用数据族和样式 profile 见 `native.py`。样本种子由总种子、图族、索引决定，记录实际采样种子与控制项；Python 并行使用进程。
+旧别名 `n_points`、`n_categories`、`n_series`、`style_profile` 仍可使用；与规范名冲突时拒绝。`max_attempts` 为旧配置兼容项，强制控制直接应用，新采样没有旧版拒绝重采样循环。参数含义和验证以 `generation/controls.py` 为准。
 
-## 精简 JSON 约定
+## GT 表与可见顺序
 
-常规顶层只有 `data`、可选 `title`、`mark`、`encoding`；误差图使用共享 encoding 的两层 bar + rule。柱图每行是 `category/value`，折线和散点是 `x/y`；多个系列或可见有效单系列名称增加 `series`。只有确实存在误差时再增加 `lower/upper`。
+训练 GT 的 `data.values` 是实际读取顺序，不依赖隐藏的排序列表：
 
-- 变量名与单位在轴通道 `title` 保留一次。整体标题保留原文本，不复制字号或排版换行。
-- 多系列以真实名称编码；分组柱用 `xOffset/yOffset`，堆叠用 `stack:"zero"`。已为百分数的数据不再次归一化。
-- 分类和等间隔时间标签保持有序离散轴。数值 x 保留真实值；非单调或同 x 折线用 `mark.order:false` 保留原输入连接顺序。
-- 重复类别/系列名称确实代表不同身份时，才以该字段中的整数键及最少 `labelExpr` 保留身份和原显示文本。正常样本不带 ID，重复散点不去重。
-- 非线性尺度及必要 base/exponent/constant、误差上下限保留。普通线性尺度、布局 domain、ticks、reverse、颜色范围、字体、尺寸、marker 样式、hatch、参考零线和元数据不进入 GT。
+- 横向柱图：类别从上到下，组内柱子从上到下。
+- 纵向柱图：类别从左到右，分组柱子从左到右。
+- 堆叠柱图：类别从左到右，每组片段从上到下。
+- 折线：x 从左到右，同一 x 的记录保持稳定系列顺序。
+- 散点：x 从左到右，同 x 时 y 从上到下，完全相同的观察保留重复次数。
 
-精简数据没有 `row_id`、`plot_x0`、堆叠 bottom/top、像素坐标或生产信息。完整规格中的 source rows、ID 和几何文件继续作为管线内部证据。`normalize(full)` 与 `normalize(compact)` 的验证分别检查确定性和幂等；`project_rows(full) == semantic_rows(compact)` 检查真实观察、重复身份与顺序。视觉样式变化而科学语义不变时，应共享同一 GT。
+反向坐标按照实际屏幕方向计算上述顺序。原始 `row_id`、`series_index`、`point_index` 保留在完整规格与证据文件，不因排序重写身份。类别/系列/偏移的 nominal 或 ordinal 通道统一设置 `sort: null`，按 `data.values` 第一次出现顺序建立域。数值轴反向属性属于可见语义，会保留在 GT。
 
-## 渲染与文字完整性
+通常，柱图每行是 `category/value/series`，折线和散点每行是 `x/y/series`。GT 不包含生产 ID、像素坐标、字体配色或原绘图区范围。必要的可重绘信息例外如下：
 
-完整绘图规格生成前，`plot_layout.py` 会用所有观察点、柱子/堆叠端点和误差上下限计算安全坐标范围，并为散点符号、线宽和误差棒端帽预留像素边距。已有坐标范围只按需扩大；反向轴和尺度类型保留。非线性轴在其尺度变换空间计算边距，无法合法映射的数值会明确报错。等比例图通过增大绘图区尺寸保持比例，不再为了等比例缩小数据范围。主图元和纹理在最终范围上生成，之后再处理长文字布局。
+- 误差区间用 `lower/upper` 表示，GT 以柱图加显式 rule 图层重绘。
+- 堆叠增加 `stack_order` 维护片段连接关系；异常基线或非普通正负累计堆叠改用显式 `start/end`，避免被重新堆叠成不同形状。
+- 非单调折线路径在按可见 x 排序后，以 `path_order` 保留原连接。反向遍历但边相同的路径不必新增该列。
+- 重复类别/系列名称采用同一字段内的整数身份与 `labelExpr` 显示原文字，避免相同名称被错误合并。审计投影可添加 `*_instance` 区分这些身份；这些审计字段不写入 GT。
 
-这一策略默认生效，不改变数据、误差数值或精简 GT。每例 `plot-layout.json` 记录原范围、最终范围、边距及尺寸，`source.json` 和完整规格的 `usermeta` 中也保留该记录。原生 `native.png` 仍是未修改的 VSR 审计对照；训练图像使用经过上述布局的 `chart.png`。`build_geometry_pair` 默认保留原几何，仅用于历史审计；生产调用的是 `build_pair`。
+`normalize(full)` 构造 GT，`normalize(compact)` 幂等。`project_rows(full) == semantic_rows(compact)` 比较的是同一可见顺序下的观察、重复身份和必要连接信息。只有视觉样式变化而可见语义不变时，GT 才保持一致；改变坐标方向、图例可见性等会相应改变 GT。
 
-生成前预防与渲染后检查同时保留：不关闭 `clip`，不放宽质检阈值，也不删除越界观察来通过检查。无法安全布局或渲染后仍裁切的样本继续进入拒收清单。
+## 类别标签与隐藏图例
 
-渲染使用官方 **Vega-Lite 6.5.0 `compile` → Vega 6.4.0 `View.toSVG()`** 产生 SVG，再由第三方 **Resvg 2.6.2** 栅格化为 PNG。项目字体从 `fonts.manifest.json` 读取并记录 SHA-256。完整与精简 JSON 分别独立编译、渲染。
+类别型及等间隔时间标签折线，完整规格会显式设置所有类别刻度。历史配置中的 `tick_positions` 或 `_render_axes.xticks` 稀疏子集不会覆盖完整类别集合。GT 同样列出全部类别并关闭自动标签省略。时间标签按相等日历周期占位，日期元数据不会擅自变成按实际时间差排布的连续轴。
 
-`text_layout.py` 在完整绘图规格中关闭轴/图例/标题默认省略号截断，按词换行，增加留白或画布空间；原始科学标题和变量名另存供精简投影读取。`text-audit.json` 检查实际 SVG 文本/tspan 是否保留声明显示的标题、刻度和图例文字，并报告非源文本的省略号。该检查结合几何边界审计使用，不能单凭 SVG 文本证明所有文字之间都无重叠。
+无图例时，原始不可见名称不进入训练答案。系列按表中首次出现顺序命名为 `Series 1`、`Series 2`……；单系列也保留 `series: "Series 1"`。完整规格与 GT 都隐藏图例，`Series N` 作为答案中的约定身份，而不是伪造图片中存在的文字。显示图例时保留其真实名称和重复名称身份。
 
-renderer 默认 2 个独立 Node 子进程、每批最多 10 样本、单批 180 秒超时；原生库崩溃或超时后保留成功结果、拆分重试，最终失败记录为拒收。恢复默认开启，核对输入、运行环境、字体和全部输出 SHA-256；缺失或变更文件会重绘。
+单点折线必须保留可见点标记，避免只有一条无长度线而看不到观察。标记子采样仅作用于图形标记，不删掉数据行或类别标签。
 
-常用参数为 `--workers`、`--chunk-size`、`--child-timeout-ms`、`--target-side`、`--resize-mode contain|stretch`、`--no-resume`。renderer 进程数独立于 Python 配置的 `workers`。详细参数、退出码及隔离恢复验证见 [render.mjs](../render.mjs)。
+## 布局与渲染
 
-## 输出与质量门
+`plot_layout.py` 根据点、柱端点、堆叠端点和误差上下限扩展安全坐标范围，为标记、线宽和端帽保留像素空间；已有足够的范围保持不变。非线性轴在变换空间计算边距。等比例散点通过扩大绘图区保持比例，无法合法映射的数据明确失败。每例的 `plot-layout.json` 保存调整证据。
 
-每例 `samples/<类型>-<索引>/` 的主要文件：
+`presentation.py` 将采样的字体、网格、线型、刻度和图例样式映射到 Vega-Lite。字体文件经 fontTools 读取真实元数据。`text_layout.py` 关闭默认截断，按词换行并增加留白；原始标题/变量名保留用于 GT 投影。全部类别标签显式保留，长标签仍需结合图像检查其可读性。
 
-- `full.vl.json`、`chart.svg/png`：绘图规格及其实际渲染图像。
-- `compact.vl.json`、`compact.svg/png`：最小训练 GT 及独立重绘。
-- `config.json`、`source.json`、`generation.json`：采样配置、原始观察和生产证据。
-- `geometry.json`、`compact.geometry.json` 及对应 1036 版本：场景图几何和同步缩放结果。
-- `text-audit.json`、`render-record.json`：实际 SVG 文字检查与输出校验记录。
-- `plot-layout.json`：渲染前范围与像素边距调整的审计记录。
-- `native.png`、`native.annotation.json`、`native.raw.config.json` 等：可选原生对照和标注。
+渲染使用固定版本的官方 Vega-Lite `compile`、Vega `View.toSVG()`，再由 Resvg 栅格化。完整与精简规格独立编译、渲染。字体来源为 `assets/fonts/` 与 `fonts.manifest.json`，输出记录保存文件哈希。
 
-运行目录保存 `run.json`、`generation-manifest.json`、`render-report.json`、`validation.json`、接受/拒绝清单及训练 JSONL。质量门检查两份官方 Schema、语义投影/幂等、真实场景图观察数量（包括重复行）、图像尺寸、有限坐标、缩放坐标一致、SVG 文字、渲染警告及严重裁切。完整和精简规格允许不同视觉布局。
+renderer 默认使用两个隔离 Node 子进程，每批最多十个样本，单批超时为 180 秒。失败批次拆分重试，成功结果保留。恢复时核对输入、运行环境、字体和输出 SHA-256；变化或缺失的输出重绘。常用参数为 `--workers`、`--chunk-size`、`--child-timeout-ms`、`--target-side`、`--resize-mode contain|stretch`、`--no-resume`。renderer 进程数独立于 Python 采样进程数。
 
-VSR 上游固定为 `1fd040346add205ffbada9748273cad3bc9159e5`，源代码和 Apache-2.0 LICENSE 保留在 `vendor/VSR`。原生生成模式可继续运行其 `resize_and_remap.py`、`render_anchors.py`，输出 `native_outputs/`、`native_packaged/`；重新投影使用已保存的原生证据，无需重新打包。`verify_native.py` 是原生包装器的保真审计工具，不是精简 GT 的训练目标。
+## 质量门与训练导出
 
-本版不宣称生成了论文历史 800K 数据或复现了未公开质量过滤器。新增图族、真实数据采样和其他扩展留待后续。
+运行目录保存 `run.json`、候选 `generation-manifest.json`、`render-jobs.json`、`render-report.json`、`validation.json`、接受/拒绝清单与训练 JSONL。新生成的成功样本保存：
 
-## 参考
+| 产物 | 用途 |
+|---|---|
+| `full.vl.json`、`chart.svg/png` | 完整规格与训练输入 |
+| `compact.vl.json`、`compact.svg/png` | GT 与独立重绘 |
+| `config.json`、`sampling.json`、`generation.json` | 可复查的采样参数、种子和控制 |
+| `source.json` | 原始观察身份、可见顺序和能力记录 |
+| `geometry.json`、`compact.geometry.json` 及缩放版本 | 实际场景图图元和坐标 |
+| `plot-layout.json`、`text-audit.json`、`render-record.json` | 布局、文字与输出完整性检查 |
 
-- [科学图表识别训练方案](https://aicarrier.feishu.cn/wiki/QmiTwJqa3iz4f6kHfIQc0fkBnnh)
-- [VSR 图表生成设计](https://github.com/InternLM/VSR/tree/1fd040346add205ffbada9748273cad3bc9159e5/chart_generation)
-- [ChartCoder data_generator](https://github.com/thunlp/ChartCoder/tree/47d965c971be15eebc5bd495c87efcfa34b2016a/data_generator)
-- [Vega-Lite 官方示例](https://vega.github.io/vega-lite/examples/)
+历史重投影仅继承源目录已有的 `sampling.json` 等历史证据，不会补造缺失的采样来源文件。
+
+质量门检查两份官方 Schema、投影一致与幂等、场景图真实观察数量和重复次数、图像尺寸、有限坐标、缩放一致性、实际 SVG 文字、渲染警告及严重裁切。数据图元不能靠删除越界观察通过检查。完整与 GT 的视觉样式可不同，但类别、观察及连接信息必须一致。
+
+`counts` 表示候选数。只有接受样本写入 `manifest.jsonl` / `train.jsonl`；拒收原因写入 `rejected.jsonl`。生成、渲染或验证失败会使命令返回非零。自动检查不能认证所有视觉可读性，也不代表复现了论文历史 800K 数据或未公开质量过滤器。
+
+## 迁移与兼容
+
+旧 VSR Matplotlib 生成器、PNG/像素标注、resize/anchor 打包、原生展示重放已移除。新运行不创建 `native.png`、`native.annotation.json`、`native_outputs/` 或 `native_packaged/`。`native.py.generate_native` 作为薄兼容入口委托 `generation.generate_chart`，其旧 `render` 参数不产生绘图行为。
+
+旧运行配置中的 `native` / `postprocess_native` 可读取，启用时提示已移除并忽略。`--resume` 要求生成器版本、GT 合约和规范化配置均相同；旧版本运行使用 `reproject` 到新目录。重投影直接读取保存的 `config.json` 和可选 `presentation.native.json`，保留旧数据与可用展示快照，重新构建当前 JSON/图像。`--recover-native-presentation` 已不支持，不能重做 Matplotlib 捕获。
+
+图族与风格多样性来自显式可选的数据族及参数组合。相同新生成器版本、种子、控制与资源可重现；不保证与旧 VSR 生成器的同种子数据或像素一致。VSR 的设计归属与许可证保留在 `THIRD_PARTY.md` 和 `vendor/VSR/LICENSE`。

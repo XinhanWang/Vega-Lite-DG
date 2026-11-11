@@ -1,8 +1,7 @@
-"""Map VSR presentation choices to ordinary, portable Vega-Lite properties.
+"""Apply portable Vega-Lite typography, axes and legends to chart specifications.
 
-Presentation is independent of the observation/compact contract. Font metadata
-comes from the actual font file, using Matplotlib (already a pipeline dependency).
-No SVG postprocessing or renderer-specific style injection is used.
+Font metadata is read directly from font files with fontTools. Saved legacy
+presentation snapshots remain readable without their original renderer.
 """
 from __future__ import annotations
 
@@ -20,10 +19,14 @@ DASHES = {"-": [], "solid": [], "--": [6, 3], "dashed": [6, 3],
 
 @lru_cache(maxsize=128)
 def _font_metadata(filename: str, mtime_ns: int, size: int) -> dict:
-    from matplotlib.font_manager import get_font, ttfFontProperty, weight_dict
-    entry = ttfFontProperty(get_font(filename))
-    weight = entry.weight if isinstance(entry.weight, (int, float)) else weight_dict[entry.weight]
-    return {"family": entry.name, "weight": int(weight), "style": entry.style}
+    from fontTools.ttLib import TTFont
+    with TTFont(filename, lazy=True, fontNumber=0) as font:
+        names = font['name']
+        family = names.getBestFamilyName() or Path(filename).stem
+        os2 = font.get('OS/2')
+        weight = int(os2.usWeightClass) if os2 else 400
+        italic = bool(os2.fsSelection & 1) if os2 else False
+        return {"family": family, "weight": weight, "style": "italic" if italic else "normal"}
 
 
 def describe_font(filename: str | Path) -> dict:
@@ -33,8 +36,7 @@ def describe_font(filename: str | Path) -> dict:
 
 
 def selected_font(cfg: dict) -> dict:
-    # All nine pinned upstream renderers pass cfg['font_path'] to FontProperties.
-    # style.font_path is independently sampled and is only a fallback for cfg-only inputs.
+    # Explicit chart font takes precedence over the style fallback.
     name = cfg.get("font_path") or cfg.get("style", {}).get("font_path")
     if not name:
         return {"family": "sans-serif", "weight": 400, "style": "normal", "source": "default"}
@@ -42,14 +44,57 @@ def selected_font(cfg: dict) -> dict:
     if not path.is_file():
         # Saved configurations may originate on another machine or OS.
         basename = str(name).replace("\\", "/").rsplit("/", 1)[-1]
-        path = ROOT / "vendor/VSR/chart_generation/assets/fonts" / basename
+        path = ROOT / "assets/fonts" / basename
     if not path.is_file():
-        raise FileNotFoundError(f"Selected VSR font is unavailable: {name}. Run python bootstrap.py or supply the font file.")
+        raise FileNotFoundError(f"Selected font is unavailable: {name}. Run python bootstrap.py or supply the font file.")
     return {**describe_font(path), "file": path.name, "source": "font_file"}
 
 
+@lru_cache(maxsize=128)
+def _family_faces(family, directory_mtime_ns):
+    faces = []
+    for path in sorted((ROOT / 'assets/fonts').glob('*')):
+        if path.suffix.lower() in {'.ttf', '.otf', '.ttc'} and path.is_file():
+            face = describe_font(path)
+            if face['family'] == family:
+                faces.append({**face, 'file': path.name})
+    return tuple(faces)
+
+
+def resolve_role_font(family, weight, font_style, selected):
+    """Use real same-family faces, explicitly auditing unavailable requests.
+
+    Bookman's actual Light/Demi weights are 300/600. Noto Mono cannot silently
+    synthesize bold/italic. Added renderer faces do not change the sampling pool.
+    """
+    directory = ROOT / 'assets/fonts'
+    faces = _family_faces(family, directory.stat().st_mtime_ns)
+    requested = {'family': family, 'weight': weight, 'style': font_style}
+    if not faces:
+        # Generic fonts remain explicitly generic for the renderer's resolver.
+        return {'family': family, 'weight': weight, 'style': font_style}, {'requested': requested, 'reason': 'generic_or_external_font'}
+    desired = 400 if weight == 'normal' else 700 if weight == 'bold' else int(weight)
+    weights = sorted({f['weight'] for f in faces})
+    target = min(weights, key=lambda w: (abs(w - desired), w))
+    matches = [f for f in faces if f['weight'] == target and f['style'] == font_style]
+    reason = 'exact_face' if target == desired else 'same_family_actual_weight'
+    if not matches:
+        matches = [f for f in faces if f['weight'] == target and f['style'] == 'normal']
+        reason = 'requested_style_unavailable_using_real_normal_face'
+    if not matches:
+        matches = sorted(faces, key=lambda f: (abs(f['weight'] - desired), f['style'] != 'normal'))
+        reason = 'requested_role_unavailable_using_real_same_family_face'
+    resolved = dict(matches[0])
+    if len(weights) == 1 and target != desired:
+        reason = 'requested_weight_unavailable_using_only_real_family_weight'
+    return resolved, {'requested': requested, 'resolved': dict(resolved), 'reason': reason}
+
+
 def _rgba(color, alpha: float) -> str:
-    text = {"white": "#ffffff", "black": "#000000", "gray": "#808080", "grey": "#808080"}.get(color, color)
+    aliases = {"w": "#ffffff", "k": "#000000", "r": "#ff0000", "g": "#008000",
+               "b": "#0000ff", "c": "#00bfbf", "m": "#bf00bf", "y": "#bfbf00",
+               "white": "#ffffff", "black": "#000000", "gray": "#808080", "grey": "#808080"}
+    text = aliases.get(color, color) if isinstance(color, str) else color
     if isinstance(text, str) and text.startswith("#") and len(text) in {4, 5, 7, 9}:
         digits = text[1:]
         if len(digits) in {3, 4}:
@@ -58,8 +103,17 @@ def _rgba(color, alpha: float) -> str:
         r, g, b = parts[:3]
         a = parts[3] if len(parts) == 4 else 1
     else:
-        from matplotlib.colors import to_rgba
-        r, g, b, a = to_rgba(color)
+        from PIL import ImageColor
+        if isinstance(color, (list, tuple)):
+            r, g, b = color[:3]
+            a = color[3] if len(color) == 4 else 1
+        elif color == "none":
+            r, g, b, a = 0, 0, 0, 0
+        elif isinstance(color, str) and color.replace('.', '', 1).isdigit():
+            r = g = b = float(color)
+            a = 1
+        else:
+            r, g, b, a = [value / 255 for value in ImageColor.getcolor(color, "RGBA")]
     return f"rgba({round(r * 255)},{round(g * 255)},{round(b * 255)},{a * alpha:.4f})"
 
 
@@ -266,6 +320,27 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
             legend_options["orient"] = orient
             audit["legend"] = {"requested": loc, "chosen": orient, "reason": reason, "frame": frame, "columns": columns}
         legend.update(copy.deepcopy(legend_options))
+    # CSS roles must point at actual faces before strict SVG embedding.
+    font_roles = {}
+    def resolve_fields(obj, prefix, role):
+        family_key = prefix + 'Font' if prefix else 'font'
+        weight_key = prefix + 'FontWeight' if prefix else 'fontWeight'
+        style_key = prefix + 'FontStyle' if prefix else 'fontStyle'
+        resolved, evidence = resolve_role_font(obj.get(family_key, font['family']), obj.get(weight_key, font['weight']), obj.get(style_key, font['style']), font)
+        obj.update({family_key: resolved['family'], weight_key: resolved['weight'], style_key: resolved['style']})
+        font_roles[role] = evidence
+    resolve_fields(title, '', 'title')
+    for layer in result['layer']:
+        for axis in ('x', 'y'):
+            guide = layer.get('encoding', {}).get(axis, {}).get('axis')
+            if isinstance(guide, dict):
+                resolve_fields(guide, 'label', axis + '_tick_label')
+                resolve_fields(guide, 'title', axis + '_axis_title')
+        legend = layer.get('encoding', {}).get('color', {}).get('legend')
+        if isinstance(legend, dict):
+            resolve_fields(legend, 'label', 'legend_label')
+            resolve_fields(legend, 'title', 'legend_title')
+    audit['font_roles'] = font_roles
     offsets = {}
     for axis in ("x", "y"):
         text = axes_source.get(f"{axis}_offset_text", "")

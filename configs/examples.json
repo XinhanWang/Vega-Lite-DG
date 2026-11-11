@@ -1,20 +1,73 @@
 {
   "seed": 20261110,
-  "counts": {"barh_1": 1, "barh_n": 1, "barv_1": 1, "barv_n": 1, "barv_stack": 1, "line_1": 1, "line_n": 1, "scatter_1": 1, "scatter_n": 1},
-  "controls": {
-    "all": {"profile": "publication_clean"},
-    "barh_1": {"category_count": 5, "family": "balanced", "hatch": null, "show_error": false},
-    "barh_n": {"category_count": 4, "series_count": 2, "family": "crossing", "hatch": null, "show_error": false},
-    "barv_1": {"category_count": 5, "family": "balanced", "hatch": null, "show_error": false},
-    "barv_n": {"category_count": 4, "series_count": 2, "family": "parallel", "hatch": null, "show_error": false},
-    "barv_stack": {"category_count": 4, "series_count": 3, "stack_mode": "absolute", "hatch": null},
-    "line_1": {"point_count": 8, "x_mode": "temporal", "family": "oscillating"},
-    "line_n": {"point_count": 8, "series_count": 2, "x_mode": "numeric", "family": "crossing"},
-    "scatter_1": {"point_count": 18, "family": "correlated"},
-    "scatter_n": {"point_count": 24, "series_count": 2, "family": "clustered"}
+  "counts": {
+    "barh_1": 1,
+    "barh_n": 1,
+    "barv_1": 1,
+    "barv_n": 1,
+    "barv_stack": 1,
+    "line_1": 1,
+    "line_n": 1,
+    "scatter_1": 1,
+    "scatter_n": 1
   },
-  "native": true,
-  "postprocess_native": true,
+  "controls": {
+    "all": {
+      "profile": "publication_clean"
+    },
+    "barh_1": {
+      "category_count": 5,
+      "family": "balanced",
+      "hatch": null,
+      "show_error": false
+    },
+    "barh_n": {
+      "category_count": 4,
+      "series_count": 2,
+      "family": "crossing",
+      "hatch": null,
+      "show_error": false
+    },
+    "barv_1": {
+      "category_count": 5,
+      "family": "balanced",
+      "hatch": null,
+      "show_error": false
+    },
+    "barv_n": {
+      "category_count": 4,
+      "series_count": 2,
+      "family": "parallel",
+      "hatch": null,
+      "show_error": false
+    },
+    "barv_stack": {
+      "category_count": 4,
+      "series_count": 3,
+      "stack_mode": "absolute",
+      "hatch": null
+    },
+    "line_1": {
+      "point_count": 8,
+      "x_mode": "temporal",
+      "family": "oscillating"
+    },
+    "line_n": {
+      "point_count": 8,
+      "series_count": 2,
+      "x_mode": "numeric",
+      "family": "crossing"
+    },
+    "scatter_1": {
+      "point_count": 18,
+      "family": "correlated"
+    },
+    "scatter_n": {
+      "point_count": 24,
+      "series_count": 2,
+      "family": "clustered"
+    }
+  },
   "workers": 2,
   "target_side": 1036,
   "notes": "每种图表一个低复杂度可读示例，用于飞书展示；不用于代表完整随机分布。"

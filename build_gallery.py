@@ -27,8 +27,8 @@ def main():
     for row in rows:
         selected.setdefault(row['kind'], row)
     if set(selected) != set(LABELS):
-        raise ValueError('Expected one accepted example for every VSR chart type')
-    intro = '<p>数据生产管线 v2：借鉴 VSR 的数据与样式采样设计，支持单/多系列横向柱、纵向柱、堆叠柱、折线和散点，共 9 种图表结构。以下每类展示图像—完整绘图 Vega-Lite JSON—精简训练 JSON。图像由官方 Vega-Lite 编译器和 Vega 生成 SVG，再由 Resvg 转为 PNG。</p><p>精简 GT 只保留原始数值、类别、系列、图表类型、变量名称/单位，以及必要的分组、堆叠、非线性尺度、连接顺序与误差上下限。常规数据行使用 category/value 或 x/y，多系列增加 series；不包含内部 ID、绘图坐标、像素位置、字体颜色、轴刻度、布局和审计元信息。默认线性尺度和可自动推断的绘图设置省略。</p><p>同一数据改变字体、颜色和布局时共享相同 GT。完整绘图规格取消长文本截断，并对标题和标签换行、预留空间；精简 JSON 可独立重绘，重绘样式采用 Vega-Lite 默认设置。实现位置：h.pjlab.org.cn:/mnt/shared-storage-user/mineru2-shared/users/wangxinhan/proj/data_generation/vsr_v1。</p>'
+        raise ValueError('Expected one accepted example for every supported chart type')
+    intro = '<p>原生 Vega-Lite 数据生产管线：独立采样数据与样式，支持单/多系列横向柱、纵向柱、堆叠柱、折线和散点，共 9 种图表结构。以下每类展示图像—完整绘图 Vega-Lite JSON—精简训练 JSON。图像由官方 Vega-Lite 编译器和 Vega 生成 SVG，再由 Resvg 转为 PNG。</p><p>精简 GT 只保留原始数值、类别、系列、图表类型、变量名称/单位，以及必要的分组、堆叠、非线性尺度、连接顺序与误差上下限。常规数据行使用 category/value 或 x/y，多系列增加 series；不包含内部 ID、绘图坐标、像素位置、字体颜色、轴刻度、布局和审计元信息。默认线性尺度和可自动推断的绘图设置省略。</p><p>GT 按图中可见顺序排列 data.values，类别和系列通道使用 sort:null；无图例的系列使用 Series 1、Series 2 等名称。类别型折线显示全部类别标签。完整绘图规格取消长文本截断，并对标题和标签换行、预留空间；精简 JSON 可独立重绘，重绘样式采用 Vega-Lite 默认设置。实现位置：h.pjlab.org.cn:/mnt/shared-storage-user/mineru2-shared/users/wangxinhan/proj/data_generation/vsr_v1。</p>'
     chunks, cards = [], []
     for i, (kind, label) in enumerate(LABELS.items(), 1):
         row = selected[kind]
@@ -44,7 +44,7 @@ def main():
         cards.append(f'<section id="{kind}"><h2>{label}</h2><img src="{image}"><details><summary>绘图 Vega-Lite JSON</summary><pre>{html.escape(codes[0])}</pre></details><details><summary>精简 Vega-Lite JSON</summary><pre>{html.escape(codes[1])}</pre></details></section>')
     manifest = {'destination_url': a.destination, 'section': '合成示例', 'chunks': chunks, 'expected_images': 9, 'expected_codes': 18}
     (out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
-    document = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>图表合成 v2 · 核心 GT</title><style>body{font:16px system-ui;max-width:1100px;margin:30px auto;padding:20px;background:#f5f7fb;color:#172238}section{background:white;padding:24px;margin:24px 0;border-radius:12px}img{max-width:100%;max-height:750px}pre{overflow:auto;font:12px monospace;max-height:600px;background:#eef2f7;padding:16px}summary{padding:12px;cursor:pointer}nav a{margin:0 12px 8px 0;display:inline-block}</style><h1>图表合成 v2 · 核心 GT</h1>' + intro + '<nav>' + ''.join(f'<a href="#{k}">{v}</a>' for k, v in LABELS.items()) + '</nav>' + ''.join(cards) + '</html>'
+    document = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>原生 Vega-Lite · 可见顺序 GT</title><style>body{font:16px system-ui;max-width:1100px;margin:30px auto;padding:20px;background:#f5f7fb;color:#172238}section{background:white;padding:24px;margin:24px 0;border-radius:12px}img{max-width:100%;max-height:750px}pre{overflow:auto;font:12px monospace;max-height:600px;background:#eef2f7;padding:16px}summary{padding:12px;cursor:pointer}nav a{margin:0 12px 8px 0;display:inline-block}</style><h1>原生 Vega-Lite · 可见顺序 GT</h1>' + intro + '<nav>' + ''.join(f'<a href="#{k}">{v}</a>' for k, v in LABELS.items()) + '</nav>' + ''.join(cards) + '</html>'
     (out / 'gallery.html').write_text(document, encoding='utf-8')
     print(json.dumps({'examples': len(chunks), 'images': 9, 'codes': 18, 'gallery': str(out / 'gallery.html')}))
 
