@@ -19,8 +19,14 @@ from workflow.validation import validate
 
 def write_render_jobs(out, records):
     jobs = [{'id': row['id'], 'full': str(out / row['sample'] / 'full.vl.json'),
-             'compact': str(out / row['sample'] / 'compact.vl.json'), 'output': str(out / row['sample'])}
+             'compact': str(out / row['sample'] / 'compact.preview.vl.json'), 'output': str(out / row['sample'])}
             for row in records if row['status'] == 'generated']
+    # Training targets never acquire layout settings for renderer validation.
+    from compact_display import render_spec
+    for row in records:
+        if row['status'] == 'generated':
+            sample = out / row['sample']
+            dump(sample / 'compact.preview.vl.json', render_spec(read(sample / 'compact.vl.json')))
     dump(out / 'render-jobs.json', jobs)
     return jobs
 
@@ -47,6 +53,8 @@ def produce(task):
             raise ValueError('Full-to-compact mapping/idempotence failed')
         dump(out / 'full.vl.json', full)
         dump(out / 'compact.vl.json', compact)
+        from compact_display import render_spec
+        dump(out / 'compact.preview.vl.json', render_spec(compact))
         dump(out / 'source.json', source)
         dump(out / 'plot-layout.json', source['plot_layout'])
         dump(out / 'generation.json', {**task, 'generator_version': GENERATOR_VERSION, 'contract': CONTRACT, 'sample_seed': result.get('sample_seed', task['seed']), 'diagnostics': result.get('diagnostics', {})})
@@ -73,6 +81,8 @@ def generate(args):
         if not args.resume:
             raise ValueError('Output directory is not empty. Select a new run or use --resume with identical config.')
         previous = read(out / 'run.json')
+        if previous.get('operation', 'generate') != 'generate':
+            raise ValueError('generate --resume requires a generation run, not a projection/migration run')
         if previous.get('generator_version') != GENERATOR_VERSION or previous.get('contract') != CONTRACT:
             raise ValueError('Resume requires the same generator and GT contract; use reproject for a historical run')
         if previous['config_sha256'] != fingerprint:
@@ -108,6 +118,9 @@ def generate(args):
 
 
 def reproject(args):
+    if getattr(args, 'compact_only', False):
+        from workflow.migration import migrate_compact
+        return migrate_compact(args)
     """Rebuild specs in a new run using saved data; preserve original runs."""
     from adapter import build_pair, normalize
     origin, out = Path(args.source).resolve(), Path(args.output).resolve()
@@ -173,6 +186,7 @@ def main():
     rep.add_argument('--source', required=True)
     rep.add_argument('--output', required=True)
     rep.add_argument('--prepare-only', action='store_true')
+    rep.add_argument('--compact-only', action='store_true', help='Migrate semantic GT only; copy saved full images/evidence without sampling or rendering')
     rep.add_argument('--node')
     args = parser.parse_args()
     if args.command == 'generate':

@@ -2,7 +2,7 @@
 
 面向“图表图像 → Vega-Lite JSON”的原生数据生成管线。Python 负责采样数据与视觉参数，直接构建 Vega-Lite JSON；唯一绘图链是 **Vega-Lite 6.5.0 → Vega 6.4.0 SVG → Resvg 2.6.2 PNG**。生成无需 GPU 或 LLM API。
 
-每个样本对应三份主要产物：`full.vl.json` 是完整绘图规格，`chart.png` 是其实际渲染图像，`compact.vl.json` 是训练用 GT。GT 另行渲染为 `compact.svg/png`，用于核对观察、顺序和类别标签。
+每个样本对应三份主要产物：`full.vl.json` 是完整绘图规格，`chart.png` 是其实际渲染图像，`compact.vl.json` 是训练用 GT。训练 GT 不含显示排版。`compact_display.render_spec()` 派生 `compact.preview.vl.json`，再渲染为 `compact.svg/png` 用于显示核查；预览规格从不写入训练答案。
 
 ## 支持范围
 
@@ -16,7 +16,7 @@
 
 保留了数据族、样式配置、字体、配色、误差棒、柱形纹理、标记/线型、非线性与反向轴、参考线、等比例散点布局、长文字布局和质量检查。折线支持类别、等间隔时间标签和数值 x。所有可选数据族列在 `generation/controls.py`，每个图族的公式位于 `generation/bars.py`、`lines.py` 或 `scatter.py`。
 
-**训练数据的顺序按图片可见顺序写入 `data.values`。** 横向类别从上到下，纵向类别和 x 位置从左到右；组内按位置排列，堆叠按从上到下排列。同 x 的折线记录保持系列顺序。类别、系列和分组偏移通道均使用 `sort: null`。反向轴会改变表中顺序，GT 保留数值轴的反向信息。
+**训练数据的顺序按图片可见顺序写入 `data.values`。** 横向类别从上到下，纵向类别和 x 位置从左到右；组内按位置排列，堆叠按从上到下排列。同 x 的折线记录保持系列顺序。类别、系列和分组偏移通道均使用 `sort: null`。反向轴会改变表中可见顺序，但 GT 不保留绘图朝向 `scale.reverse`；必要的路径/堆叠关系由显式字段保存。
 
 类别/时间标签折线强制显示全部标签，历史配置里稀疏的 tick 子集不会删掉类别。没有图例时，每个系列按首次可见顺序命名为 `Series 1`、`Series 2`、`Series 3`……；单系列同样使用 `Series 1`，GT 保持图例隐藏。可见图例保留原名称。
 
@@ -110,7 +110,7 @@ PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" pytho
 
 ## 2026-11-11 样式恢复与独立 SVG 字体
 
-原生生成器的样式版本为 `vega-lite-native/1.1`。旧版本保存的配置可用 `reproject` 投影到新目录；不同采样器版本不能混用 `generate --resume`。原 16 个基准字体文件维持采样池，新增字形文件仅服务于同家族粗体/斜体，不改变基准字体抽样权重。
+字体与样式恢复阶段版本为 `vega-lite-native/1.1`，当前采样版本为 `vega-lite-native/1.2`。旧版本保存的配置可用 `reproject` 投影到新目录；不同采样器版本不能混用 `generate --resume`。原 16 个基准字体文件维持采样池，新增字形文件仅服务于同家族粗体/斜体，不改变基准字体抽样权重。
 
 `render.mjs` 导出完整与精简 SVG 时调用 `font_embedding.py`：遍历所有文字角色，校验实际字形、字体哈希和许可，写入 `@font-face` data URI 与许可元数据；保留可选择和搜索的 `<text>`。Resvg 从 SVG 自带字节加载字体，关闭系统字体加载。`--rasterizer sharp` 因尚未实现相同的字体隔离契约而明确拒绝。未获许可、缺字、缺少实际字形或不支持的字体声明会明确报错。
 
@@ -131,3 +131,20 @@ PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" VSR_F
 每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认自然percent样本保留原版随机舍入后的值。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
 
 同版本恢复使用 `generate --resume`；1.1及更早的保存配置使用 `reproject` 到新目录，避免混采。修改前清单见 `docs/vsr-alignment-baseline-20261111.md`，数值和文本移植说明见 `docs/vsr-numeric-restoration-20261111.md`、`docs/vsr-text-restoration-20261111.md`，实际对照与交付证据见 `docs/vsr-alignment-delivery-20261111.md`。
+
+
+## Compact-v4：语义 GT 与预览分离
+
+保留观察数值、可见类别/系列名称、语义标题与单位、分组/堆叠/误差区间、非线性尺度及必要的路径/堆叠顺序。颜色通道的字段分组关系不是装饰，不能删除；只删除具体颜色范围。重复标签保留原文字，使用 \*_instance 字段表达独立身份，编码引用身份字段。隐藏的单匿名 Series 1 删除重复系列列及颜色通道。
+
+移除字体、画布尺寸、轴/图例排版、刻度选择、标签表达式及旋转、背景、具体颜色、单点折线的可见性补丁。预览从语义 GT 的深拷贝派生默认显示设置；数据表及行序完全相同。严格的 v4 规范校验和幂等规范化拒绝混入 v3 显示字段；历史 v3 可显式解码用于迁移审计。
+
+只清理历史 GT、完全不重画 full 的入口：
+
+```bash
+python3 pipeline.py reproject --source runs/old_run --output runs/new_compact_v4 --compact-only
+```
+
+这一路径复制保存的 full/config/source/PNG/SVG/geometry 等证据，逐文件验证 SHA-256，重新生成 compact、预览规格及训练 JSONL；不调用采样器或渲染器。旧 compact 图像不以当前名称复制，以免误认为新 GT 的渲染结果。运行报告明确标记预览未渲染，并只验收复用的 full 图像；普通 generate/reproject 仍实际渲染 full 与 compact-preview。当前 GT 合约是 compact-v4，与采样器版本独立；旧运行不能直接 generate --resume 混入新 GT。
+
+验收与剩余边界见 docs/compact-v4-delivery-20261111.md 和 docs/compact-v4-independent-audit-20261111.md。

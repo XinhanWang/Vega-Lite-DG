@@ -739,7 +739,7 @@ def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     full['usermeta']['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     compact = normalize(full)
-    source['training_contract'] = 'compact-v3: visible table order, null discrete sorting, complete category labels, explicit exceptional path/stack order'
+    source['training_contract'] = 'compact-v4: semantic values, identities, variables, relations and necessary order; presentation exists only in full/preview'
     return full, compact, source
 
 
@@ -833,6 +833,6 @@ def normalize_geometry(full: dict) -> dict:
 
 
 def normalize(full: dict) -> dict:
-    """Canonical compact-v2 GT; internal geometry never enters the target."""
+    """Canonical compact-v4 GT; internal geometry never enters the target."""
     from compact import normalize as semantic_normalize
     return semantic_normalize(full)

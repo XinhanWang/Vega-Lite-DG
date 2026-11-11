@@ -1,27 +1,10 @@
-"""Compact, independently renderable training targets for nine chart kinds.
-
-Observation tables follow image reading order. Categorical and series encodings
-use sort:null; numerical scale reversal remains explicit. All categorical line
-labels are required, and hidden legends use stable English Series 1, Series 2,
-... identifiers instead of labels that cannot be read in the image.
-
-Bars contain category/value/series and lines/scatter contain x/y/series. Error
-intervals add lower/upper. Ordinary stacks use stack_order to preserve their
-baselines after top-to-bottom table ordering; arbitrary or crossing stacks use
-measured start/end instead. Nonmonotonic paths add path_order only when visible
-x order would otherwise connect different observations. These are semantic
-fields, not pixels or styling.
-
-Repeated display names use integer keys and literal label expressions without
-merging identities. project_rows(full) and semantic_rows(compact) return equal
-ordered canonical rows, with *_instance audit fields only for ambiguous names.
-Duplicate observations are retained. Already-compact inputs are copied unchanged.
-"""
+"""Compact v4 semantic GT; v3 decoding is retained for migration audits."""
 from __future__ import annotations
 
 from collections import Counter
 import copy
 import json
+import math
 from typing import Any
 
 from ordering import first_seen, needs_path_order, needs_stack_endpoints, visual_rows
@@ -63,7 +46,7 @@ def _decode(expr: str, value: Any) -> Any:
     return json.loads(expr[:-len(suffix)])[int(value)]
 
 
-def _context(full: dict) -> dict:
+def _context(full: dict, version: int = 4) -> dict:
     semantic = _semantic(full)
     if semantic is None or semantic["kind"] not in KINDS:
         raise ValueError("Expected an adapter full spec for one of the nine VSR chart kinds")
@@ -80,7 +63,7 @@ def _context(full: dict) -> dict:
     series_names = ({row["series_id"]: row["series_name"] for row in rows} if visible_legend else
                     {key: f"Series {i + 1}" for i, key in enumerate(series_keys)})
     _, repeated_series = _mapping(series_keys, [series_names[key] for key in series_keys])
-    include_series = True
+    include_series = version == 3 or visible_legend or len(series_keys) > 1
     category_field = "category" if kind.startswith("bar") else "x" if kind.startswith("line") and semantic.get("x_mode") != "numeric" else None
     category_keys = list(dict.fromkeys(row["category_id"] for row in rows)) if category_field else []
     categories = {row["category_id"]: row["category"] for row in rows} if category_field else {}
@@ -98,7 +81,7 @@ def _context(full: dict) -> dict:
             "repeated_category": repeated_category}
 
 
-def _data(context: dict, canonical: bool = False) -> list[dict]:
+def _data(context: dict, canonical: bool = True) -> list[dict]:
     """Projection reads source values; it never extracts a plotted endpoint."""
     output = []
     for row in context["rows"]:
@@ -132,33 +115,24 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
     original = context["encoding"].get(channel, {})
     result = {"field": field, "type": data_type}
     title = context["semantic_labels"].get(channel + "_title", original.get("title", (original.get("axis") or {}).get("title")))
-    # Null preserves an explicitly absent scientific axis title; otherwise
-    # Vega would invent "category", "x", "y" or "value" as visible content.
-    result["title"] = title
+    if title not in (None, "", []):
+        result["title"] = copy.deepcopy(title)
     if data_type in {"nominal", "ordinal"}:
         result["sort"] = None
-        labels = [context["categories"][key] for key in context["category_keys"]]
-        values = list(range(len(labels))) if context["repeated_category"] else labels
-        result["axis"] = {"values": values, "labelOverlap": False, "labelLimit": 0, "labelBound": False}
     else:
         scale = original.get("scale") or {}
         semantic_scale = {k: scale[k] for k in ("type", "base", "exponent", "constant")
                           if k in scale and (k != "type" or scale[k] != "linear")}
-        if scale.get("reverse"):
-            semantic_scale["reverse"] = True
         if semantic_scale:
             result["scale"] = semantic_scale
     if context["repeated_category"] and field == context["category_field"]:
-        result["axis"]["labelExpr"] = _expr([context["categories"][key] for key in context["category_keys"]])
+        result["field"] = field + "_instance"
     return result
 
 
 def _series_encoding(context: dict) -> dict:
-    result = {"field": "series", "type": "nominal", "sort": None,
-              "legend": {"title": None} if context["visible_legend"] else None}
-    if context["repeated_series"]:
-        result["legend"]["labelExpr"] = _expr([context["series_names"][key] for key in context["series_keys"]])
-    return result
+    return {"field": "series_instance" if context["repeated_series"] else "series",
+            "type": "nominal", "sort": None}
 
 
 def _needs_input_order(context: dict) -> bool:
@@ -175,6 +149,7 @@ def _needs_input_order(context: dict) -> bool:
 def normalize(full: dict) -> dict:
     """Create minimal training GT; applying it again is idempotent."""
     if _semantic(full) is None:
+        validate_target(full)
         return copy.deepcopy(full)
     context = _context(full)
     kind = context["kind"]
@@ -193,7 +168,7 @@ def normalize(full: dict) -> dict:
         if context["include_series"]:
             encoding["color"] = _series_encoding(context)
         if kind in {"barh_n", "barv_n"}:
-            encoding[category_axis + "Offset"] = {"field": "series", "type": "nominal", "sort": None}
+            encoding[category_axis + "Offset"] = _series_encoding(context)
         if kind == "barv_stack":
             if context["stack_endpoints"]:
                 # Arbitrary baselines and crossing signed stacks cannot be
@@ -221,30 +196,26 @@ def normalize(full: dict) -> dict:
         if context["path_order"]:
             result["mark"] = "line"
             encoding["order"] = {"field": "path_order", "type": "quantitative"}
-        if kind.startswith("line") and 1 in Counter(row["series_id"] for row in context["rows"]).values():
-            # A one-vertex path paints no segment. Keep the primary line mark
-            # for geometry auditing and expose its observations with points.
-            if isinstance(result["mark"], str):
-                result["mark"] = {"type": "line"}
-            result["mark"]["point"] = True
     result["encoding"] = encoding
+    validate_target(result)
     return result
 
 
-def project_rows(full: dict) -> list[dict]:
-    """Canonical source observations, retaining order and ambiguous identities.
+def project_rows(full: dict, version: int = 4) -> list[dict]:
+    """Canonical source rows; version=3 retains historical singleton policy."""
+    if version not in (3, 4):
+        raise ValueError("Unsupported compact version")
+    if _semantic(full) is None:
+        return semantic_rows(full, version=version)
+    return _data(_context(full, version=version), canonical=True)
 
-    Ordinary bars use category/value[/series][/lower/upper]; lines/scatter use
-    x/y[/series]. Only duplicate-name identities add *_instance in this audit
-    return value. Those audit-only keys never enter the minimal GT data table.
-    """
-    return _data(_context(full), canonical=True)
 
-
-def semantic_rows(spec: dict) -> list[dict]:
+def semantic_rows(spec: dict, version: int = 4) -> list[dict]:
     """Decode minimal rows into the same canonical list as project_rows(full)."""
+    if version not in (3, 4):
+        raise ValueError("Unsupported compact version")
     if _semantic(spec) is not None:
-        return project_rows(spec)
+        return project_rows(spec, version=version)
     rows = copy.deepcopy(spec["data"]["values"])
     encoding = spec["encoding"]
     for channel in ("x", "y"):
@@ -262,3 +233,126 @@ def semantic_rows(spec: dict) -> list[dict]:
             row["series_instance"] = row["series"]
             row["series"] = _decode(expr, row["series"])
     return rows
+
+
+def validate_canonical(spec: dict) -> None:
+    """Validate the bounded v4 grammar. Unsupported/legacy input raises ValueError."""
+    def check(ok, message):
+        if not ok:
+            raise ValueError("Unsupported/noncanonical compact-v4: " + message)
+    check(isinstance(spec, dict), "expected object")
+    check(set(spec) <= {"data", "title", "mark", "encoding", "layer"}, "top-level keys")
+    check({"data", "encoding"} <= set(spec), "missing data/encoding")
+    check(isinstance(spec["data"], dict) and set(spec["data"]) == {"values"}, "inline values only")
+    rows = spec["data"]["values"]
+    check(isinstance(rows, list) and bool(rows), "empty table")
+    check(all(isinstance(r, dict) for r in rows), "row objects required")
+    fields = set(rows[0])
+    check(all(set(r) == fields for r in rows), "inconsistent row fields")
+    bar = {"category", "value"} <= fields
+    core = {"category", "value"} if bar else {"x", "y"}
+    check(core <= fields, "missing core observations")
+    check(fields <= core | {"series", "category_instance", "x_instance", "series_instance", "lower", "upper", "path_order", "stack_order", "start", "end"}, "unknown data fields")
+    check(("lower" in fields) == ("upper" in fields), "incomplete error interval")
+    check(("start" in fields) == ("end" in fields), "incomplete stack endpoints")
+    for row in rows:
+        for f, v in row.items():
+            check(isinstance(v, (str, int, float)) and not isinstance(v, bool), "non-scalar observation")
+            check(not isinstance(v, (int, float)) or math.isfinite(v), "nonfinite observation")
+            if f in {"value", "y", "lower", "upper", "start", "end", "path_order", "stack_order"}:
+                check(isinstance(v, (int, float)), "numeric observation required")
+    for f in ("category", "x", "series"):
+        identity = f + "_instance"
+        if identity not in fields:
+            continue
+        check(f in fields, "identity without human label")
+        labels = {}
+        for row in rows:
+            i = row[identity]
+            check(type(i) is int and i >= 0, "integer identity required")
+            check(i not in labels or labels[i] == row[f], "identity label conflict")
+            labels[i] = row[f]
+        check(list(labels) == list(range(len(labels))), "identities must follow first-seen order")
+        check(len(set(labels.values())) < len(labels), "unnecessary identity field")
+    def valid_title(value):
+        return isinstance(value, str) and bool(value) or isinstance(value, list) and bool(value) and all(isinstance(v, str) for v in value)
+    if "title" in spec:
+        check(valid_title(spec["title"]), "invalid title")
+    enc = spec["encoding"]
+    check(isinstance(enc, dict) and {"x", "y"} <= set(enc), "missing positional encoding")
+    check(set(enc) <= {"x", "y", "x2", "y2", "xOffset", "yOffset", "color", "order"}, "unsupported channel")
+    used = set()
+    for channel, d in enc.items():
+        check(isinstance(d, dict), "channel object required")
+        check(set(d) <= {"field", "type", "title", "sort", "scale", "stack"}, "display/unsupported encoding property")
+        check(isinstance(d.get("field"), str) and d["field"] in fields, "field missing from data")
+        f = d["field"]
+        check(f + "_instance" not in fields, "encoding must use identity field")
+        used.add(f)
+        if channel in {"x2", "y2"}:
+            check(set(d) == {"field"}, "secondary channel grammar")
+        else:
+            check(d.get("type") in {"nominal", "ordinal", "quantitative"}, "unsupported data type")
+        if d.get("type") in {"nominal", "ordinal"}:
+            check("sort" in d and d["sort"] is None, "discrete order must follow rows")
+        else:
+            check("sort" not in d, "unnecessary quantitative sort")
+        if "title" in d:
+            check(valid_title(d["title"]), "invalid variable title")
+        if "scale" in d:
+            scale = d["scale"]
+            check(channel in {"x", "y"} and isinstance(scale, dict), "invalid scale")
+            allowed = {"log": {"type", "base"}, "pow": {"type", "exponent"}, "sqrt": {"type"}, "symlog": {"type", "constant"}}
+            check(isinstance(scale.get("type"), str) and scale["type"] in allowed, "only nonlinear semantic scales")
+            check(set(scale) <= allowed[scale["type"]], "inapplicable scale parameter")
+            for k in set(scale) - {"type"}:
+                v = scale[k]
+                check(type(v) in (int, float) and math.isfinite(v) and v > 0 and (k != "base" or v != 1), "invalid nonlinear parameter")
+        if "stack" in d:
+            check(channel in {"x", "y"} and d["stack"] in (None, "zero"), "invalid stack")
+    for channel in ("color", "xOffset", "yOffset"):
+        if channel in enc:
+            check(enc[channel] == {"field": "series_instance" if "series_instance" in fields else "series", "type": "nominal", "sort": None}, "series channel grammar")
+    check(("series" in fields) == ("color" in enc), "series grouping required")
+    if "layer" in spec:
+        check("mark" not in spec and bar and "lower" in fields, "only explicit bar error layers supported")
+        axis = "x" if enc["x"]["field"] in {"value", "end"} else "y"
+        interval = {"field": "lower", "type": "quantitative"}
+        if {"stack_order", "start"} & fields:
+            interval["stack"] = None
+        expected = [{"mark": "bar"}, {"mark": "rule", "encoding": {axis: interval, axis + "2": {"field": "upper"}}}]
+        check(spec["layer"] == expected, "unsupported layer structure")
+        used.update({"lower", "upper"})
+        mark = "bar"
+    else:
+        mark = spec.get("mark")
+        check(mark in ("bar", "line", "point") if isinstance(mark, str) else mark == {"type": "line", "order": False}, "unsupported mark")
+        mark = mark if isinstance(mark, str) else "line"
+        check("lower" not in fields, "errors need explicit layers")
+    check((mark == "bar") == bar, "mark/data mismatch")
+    if bar:
+        category_axis = "y" if enc["x"]["field"] == "value" else "x"
+        value_axis = "x" if category_axis == "y" else "y"
+        check(enc[category_axis]["field"] == ("category_instance" if "category_instance" in fields else "category") and enc[category_axis]["type"] == "nominal", "bar category encoding")
+        check(enc[value_axis]["field"] == ("end" if "start" in fields else "value") and enc[value_axis]["type"] == "quantitative", "bar value encoding")
+        check(not {"path_order", "x_instance"} & fields, "line fields in bar")
+        check(not {"xOffset", "yOffset"} & set(enc) or category_axis + "Offset" in enc, "offset axis")
+    else:
+        check(enc["x"]["field"] == ("x_instance" if "x_instance" in fields else "x") and enc["y"]["field"] == "y" and enc["y"]["type"] == "quantitative", "xy encoding")
+        check(not {"start", "stack_order", "category_instance"} & fields and not {"xOffset", "yOffset", "x2", "y2"} & set(enc), "bar fields in xy chart")
+        if enc["x"]["type"] == "quantitative":
+            check(all(type(r["x"]) in (int, float) for r in rows), "numeric x required")
+    if "path_order" in fields:
+        check(mark == "line" and enc.get("order") == {"field": "path_order", "type": "quantitative"}, "path ordering required")
+    if "stack_order" in fields:
+        check(bar and enc.get("order") == {"field": "stack_order", "type": "quantitative"} and enc["y"].get("stack") == "zero", "stack ordering required")
+    if "start" in fields:
+        check(bar and enc["y"].get("field") == "end" and enc["y"].get("stack", "missing") is None and enc.get("y2") == {"field": "start"}, "stack endpoints required")
+        used.add("value")
+    if "order" in enc:
+        check(enc["order"] == {"field": "path_order" if "path_order" in fields else "stack_order", "type": "quantitative"} and bool({"path_order", "stack_order"} & fields), "unsupported order")
+    for f in fields:
+        check(f in used or f + "_instance" in used, "unconsumed data field " + f)
+
+
+validate_target = validate_canonical

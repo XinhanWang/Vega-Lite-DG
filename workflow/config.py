@@ -7,7 +7,7 @@ from generation import KINDS, GENERATOR_VERSION
 from .io import read
 
 ROOT = Path(__file__).resolve().parent.parent
-CONTRACT = 'compact-v3'
+CONTRACT = 'compact-v4'
 
 
 def load_config(file):

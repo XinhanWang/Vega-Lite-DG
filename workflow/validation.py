@@ -28,10 +28,12 @@ def validate(out):
     import jsonschema
     from PIL import Image
     from adapter import normalize
-    from compact import project_rows, semantic_rows
+    from compact import project_rows, semantic_rows, validate_target
+    from compact_display import render_spec
     from text_layout import audit_text
     records = read(out / 'generation-manifest.json')
     run_metadata = read(out / 'run.json')
+    semantic_only = run_metadata.get('operation') == 'compact_migration'
     schema_paths = [ROOT / 'schema/vega-lite-6.5.0.schema.json',
                     ROOT / 'node_modules/vega-lite/build/vega-lite-schema.json',
                     ROOT.parent / 'node_modules/vega-lite/build/vega-lite-schema.json',
@@ -57,7 +59,13 @@ def validate(out):
         errors = []
         try:
             full, compact = read(sample / 'full.vl.json'), read(sample / 'compact.vl.json')
-            for label, spec in [('full', full), ('compact', compact)]:
+            preview = read(sample / 'compact.preview.vl.json')
+            validate_target(compact)
+            if preview != render_spec(compact):
+                errors.append('Compact preview differs from deterministic rendering projection')
+            if preview['data'] != compact['data']:
+                errors.append('Compact preview changed the training observations')
+            for label, spec in [('full', full), ('compact', compact), ('compact-preview', preview)]:
                 for error in validator.iter_errors(spec):
                     errors.append(f'{label} schema: {error.message[:350]}')
             if normalize(full) != compact or normalize(compact) != compact:
@@ -72,6 +80,9 @@ def validate(out):
                 errors.append('Renderer report is incomplete, missing or duplicated')
             elif render_index[row['id']][0].get('status') != 'rendered':
                 errors.append('Renderer quality checks require review; see render-report.json')
+            if semantic_only:
+                from workflow.migration import audit_copied_artifacts
+                errors.extend(audit_copied_artifacts(sample))
             source = read(sample / 'source.json')
             if full['data']['values'] != source['rows']:
                 errors.append('Vega-Lite observation table differs from source rows')
@@ -82,12 +93,18 @@ def validate(out):
             if len(rows_by_id) != len(source['rows']):
                 errors.append('Duplicate source row_id')
             target_side = run_metadata['config']['target_side']
-            for filename in ['chart.png', 'compact.png', f'chart.{target_side}.png', f'compact.{target_side}.png']:
+            image_files = ['chart.png', f'chart.{target_side}.png']
+            if not semantic_only:
+                image_files.extend(['compact.png', f'compact.{target_side}.png'])
+            for filename in image_files:
                 with Image.open(sample / filename) as image:
                     image.load()
                     if min(image.size) < 30:
                         errors.append(f'{filename}: invalid dimensions')
-            for variant, geometry_file, image_file in [('full', 'geometry.json', 'chart.png'), ('compact', 'compact.geometry.json', 'compact.png')]:
+            variants = [('full', 'geometry.json', 'chart.png')]
+            if not semantic_only:
+                variants.append(('compact', 'compact.geometry.json', 'compact.png'))
+            for variant, geometry_file, image_file in variants:
                 geometry = read(sample / geometry_file)
                 with Image.open(sample / image_file) as image:
                     if list(image.size) != [geometry['image']['width'], geometry['image']['height']]:
@@ -139,7 +156,7 @@ def validate(out):
     jsonl(out / 'manifest.jsonl', accepted)
     jsonl(out / 'rejected.jsonl', failures)
     jsonl(out / 'train.jsonl', [{'id': r['id'], 'image': r['image'], 'messages': [{'role': 'user', 'content': '将图表转换为精简 Vega-Lite JSON。'}, {'role': 'assistant', 'content': canonical(read(out / r['compact']))}]} for r in accepted])
-    summary = {'requested': len(records), 'accepted': len(accepted), 'rejected': len(failures), 'counts': dict(collections.Counter(r['kind'] for r in accepted)), 'data_families': {kind: dict(collections.Counter(str(r.get('data_family')) for r in accepted if r['kind'] == kind)) for kind in KINDS}, 'semantic_unique': len({r['semantic_sha256'] for r in accepted}), 'generator_version': run_metadata.get('generator_version', 'legacy/unknown'), 'projection_version': run_metadata.get('projection_version'), 'operation': run_metadata.get('operation', 'generate'), 'contract': CONTRACT, 'limitations': ['Automated structural, numeric, render and coordinate checks do not certify all typography or visual readability.', 'No paper quality-filter checkpoint or 800K-scale dataset reproduction is claimed.']}
+    summary = {'requested': len(records), 'accepted': len(accepted), 'rejected': len(failures), 'counts': dict(collections.Counter(r['kind'] for r in accepted)), 'data_families': {kind: dict(collections.Counter(str(r.get('data_family')) for r in accepted if r['kind'] == kind)) for kind in KINDS}, 'semantic_unique': len({r['semantic_sha256'] for r in accepted}), 'generator_version': run_metadata.get('generator_version', 'legacy/unknown'), 'projection_version': run_metadata.get('projection_version'), 'operation': run_metadata.get('operation', 'generate'), 'contract': CONTRACT, 'compact_preview_rendered': not semantic_only, 'limitations': ['Automated structural, numeric, render and coordinate checks do not certify all typography or visual readability.', 'No paper quality-filter checkpoint or 800K-scale dataset reproduction is claimed.']}
     dump(out / 'validation.json', summary)
     print(json.dumps(summary, ensure_ascii=False))
     return summary

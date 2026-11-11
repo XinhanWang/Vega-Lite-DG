@@ -10,6 +10,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from adapter import build_pair
 from compact import normalize, project_rows, semantic_rows
+from compact_display import render_spec
 from render_support import render_specs
 from test_adapter import fixture
 
@@ -33,12 +34,13 @@ def audited(spec):
 
 
 class SinglePointLineTests(unittest.TestCase):
-    def test_single_vertex_lines_enable_points_and_preserve_primary_mark(self):
+    def test_single_vertex_lines_enable_points_only_in_preview(self):
         for kind in ('line_1', 'line_n'):
             for mode in ('numeric', 'categorical', 'temporal'):
                 with self.subTest(kind=kind, mode=mode):
                     full, target, _ = singleton_pair(kind, mode)
-                    self.assertEqual(target['mark'], {'type': 'line', 'point': True})
+                    self.assertEqual(target['mark'], 'line')
+                    self.assertEqual(render_spec(target)['mark'], {'type': 'line', 'point': True})
                     self.assertEqual(project_rows(full), semantic_rows(target))
                     self.assertEqual(normalize(target), target)
 
@@ -49,7 +51,8 @@ class SinglePointLineTests(unittest.TestCase):
         full['data']['values'] = [row for row in full['data']['values']
                                   if row['series_index'] == 0 or row['point_index'] == 0]
         target = normalize(full)
-        self.assertEqual(target['mark'], {'type': 'line', 'point': True})
+        self.assertEqual(target['mark'], 'line')
+        self.assertEqual(render_spec(target)['mark'], {'type': 'line', 'point': True})
         self.assertEqual(target['encoding']['order'], {'field': 'path_order', 'type': 'quantitative'})
         self.assertEqual(project_rows(full), semantic_rows(target))
 
@@ -65,7 +68,7 @@ class SinglePointLineTests(unittest.TestCase):
         for kind in ('line_1', 'line_n'):
             for mode in ('numeric', 'categorical'):
                 full, target, _ = singleton_pair(kind, mode)
-                specs.extend((audited(full), audited(target)))
+                specs.extend((audited(full), audited(render_spec(target))))
         for spec, result in zip(specs, render_specs(specs)):
             with self.subTest(kind=spec.get('usermeta', {}).get('semantic', {}).get('kind', 'compact')):
                 self.assertEqual(result['warnings'], [])

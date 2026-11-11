@@ -29,7 +29,7 @@ class CompactTests(unittest.TestCase):
                 self.assertEqual(len(target["data"]["values"]), len(full["data"]["values"]))
                 self.assertLessEqual(set(target), {"data", "title", "mark", "encoding", "layer"})
                 for row in target["data"]["values"]:
-                    self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper", "path_order", "stack_order", "start", "end"})
+                    self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper", "path_order", "stack_order", "start", "end", "category_instance", "x_instance", "series_instance"})
                 self.assertEqual(target["encoding"]["x"]["title"], "Sample / time (s)")
                 self.assertEqual(target["encoding"]["y"]["title"], "Response (mg)")
 
@@ -49,11 +49,14 @@ class CompactTests(unittest.TestCase):
             self.assertNotIn("layer", target)
             self.assertNotIn("labelExpr", json.dumps(target))
 
-    def test_duplicate_names_preserve_identity_without_extra_data_columns(self):
+    def test_duplicate_names_keep_human_labels_and_explicit_instances(self):
         full = self.build("barv_n")
         target = normalize(full)
-        self.assertEqual([r["category"] for r in target["data"]["values"]], [0, 0, 1, 1, 2, 2])
-        self.assertEqual([r["series"] for r in target["data"]["values"]], [0, 1, 0, 1, 0, 1])
+        self.assertEqual([r["category"] for r in target["data"]["values"]], ["repeat", "repeat", "repeat", "repeat", "Z", "Z"])
+        self.assertEqual([r["series"] for r in target["data"]["values"]], ["repeat"] * 6)
+        self.assertEqual(target["encoding"]["x"]["field"], "category_instance")
+        self.assertEqual(target["encoding"]["color"]["field"], "series_instance")
+        self.assertNotIn("labelExpr", json.dumps(target))
         expected = project_rows(full)
         self.assertEqual(semantic_rows(target), expected)
         self.assertEqual([r["category_instance"] for r in expected], [0, 0, 1, 1, 2, 2])
@@ -74,7 +77,7 @@ class CompactTests(unittest.TestCase):
             target = normalize(self.build("line_n", cfg))
             self.assertEqual([row["x"] for row in target["data"]["values"]], sorted(x for x in xs for _ in range(2)))
             for series in range(2):
-                rows = [r for r in target["data"]["values"] if r["series"] == series]
+                rows = [r for r in target["data"]["values"] if r["series_instance"] == series]
                 order = target["encoding"].get("order", {}).get("field")
                 if order:
                     rows.sort(key=lambda row: row[order])
@@ -103,7 +106,7 @@ class CompactTests(unittest.TestCase):
     def test_grouped_and_stacked_structure(self):
         for kind, offset in [("barh_n", "yOffset"), ("barv_n", "xOffset")]:
             target = normalize(self.build(kind))
-            self.assertEqual(target["encoding"][offset]["field"], "series")
+            self.assertEqual(target["encoding"][offset]["field"], "series_instance")
         cfg = fixture("barv_stack")
         cfg.update(matrix=[[25, 20, 40], [75, 80, 60]], bottoms=[[0, 0, 0], [25, 20, 40]], stack_mode="percent")
         target = normalize(self.build("barv_stack", cfg))
@@ -126,7 +129,7 @@ class CompactTests(unittest.TestCase):
         for layer in full["layer"]:
             layer["encoding"]["x"]["scale"].update(type="log", base=2, domain=[0.1, 999], reverse=True)
         target = normalize(full)
-        self.assertEqual(target["encoding"]["x"]["scale"], {"type": "log", "base": 2, "reverse": True})
+        self.assertEqual(target["encoding"]["x"]["scale"], {"type": "log", "base": 2})
         self.assertNotIn("scale", target["encoding"]["y"])
 
     def test_style_variations_share_gt(self):
@@ -156,15 +159,16 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(target["title"], labels["title"])
         self.assertEqual(target["encoding"]["x"]["title"], labels["x_title"])
 
-    def test_hidden_single_series_uses_default_english_name(self):
+    def test_hidden_single_series_omits_anonymous_name_and_color(self):
         cfg = fixture("line_1")
         cfg["show_legend"] = False
-        target = normalize(self.build("line_1", cfg))
-        self.assertIsNone(target["encoding"]["color"]["legend"])
-        self.assertEqual({row["series"] for row in target["data"]["values"]}, {"Series 1"})
-        self.assertTrue(all(set(row) == {"x", "y", "series"} for row in target["data"]["values"]))
+        full = self.build("line_1", cfg)
+        target = normalize(full)
+        self.assertNotIn("color", target["encoding"])
+        self.assertTrue(all(set(row) == {"x", "y"} for row in target["data"]["values"]))
+        self.assertEqual(semantic_rows(target), project_rows(full))
 
-    def test_label_expressions_handle_unicode_quotes_and_backslashes(self):
+    def test_explicit_labels_handle_unicode_quotes_and_backslashes(self):
         cfg = fixture("barv_n")
         cfg["labels"] = ['数"据\\甲', '数"据\\甲', "B"]
         cfg["series_names"] = ['相"同\\名', '相"同\\名']

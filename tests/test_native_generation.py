@@ -81,8 +81,12 @@ print(json.dumps({'results':results,'forbidden_files':forbidden,'loaded':[n for 
                 self.assertEqual(source['row_count'], 5 if kind.endswith('_1') else 10)
                 self.assertTrue(all('lower' in row and 'upper' in row for row in target['data']['values']))
                 self.assertTrue(any(layer.get('name', '').startswith('__vsr_decoration') for layer in full['layer']))
-                self.assertEqual({row['series'] for row in target['data']['values']},
-                                 {'Series 1'} if kind.endswith('_1') else {'Series 1', 'Series 2'})
+                if kind.endswith('_1'):
+                    self.assertTrue(all('series' not in row for row in target['data']['values']))
+                    self.assertNotIn('color', target['encoding'])
+                else:
+                    self.assertEqual({row['series'] for row in target['data']['values']}, {'Series 1', 'Series 2'})
+                    self.assertNotIn('legend', target['encoding']['color'])
 
     def test_percent_stacks_sum_to_one_hundred_per_category(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -84,3 +84,6 @@
 /tests/vsr_text_fixtures/*
 !/tests/vsr_text_fixtures/*.txt
 !/tests/vsr_text_fixtures/*.json
+
+# Display-only compilation of semantic training targets.
+!/compact_display.py

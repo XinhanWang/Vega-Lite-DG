@@ -1,6 +1,7 @@
 """The training table must agree with positions and labels in real rendered charts."""
 from __future__ import annotations
 
+import copy
 import json
 import math
 from pathlib import Path
@@ -10,6 +11,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from adapter import KINDS, build_pair
 from compact import project_rows, semantic_rows
+from compact_display import render_spec
 from render_support import render_specs
 from test_adapter import fixture
 from text_layout import audit_text
@@ -39,22 +41,28 @@ class VisibleContractTests(unittest.TestCase):
                             self.assertIn('sort', definition)
                             self.assertIsNone(definition['sort'])
 
-    def test_hidden_legends_name_all_series_in_english(self):
+    def test_hidden_legends_omit_anonymous_singleton_but_keep_multiple_identities(self):
         for kind in KINDS:
             with self.subTest(kind=kind):
                 cfg = fixture(kind)
                 cfg['show_legend'] = False
                 full, target, _ = build_pair(kind, cfg)
-                names = list(dict.fromkeys(row['series'] for row in target['data']['values']))
-                self.assertEqual(names, [f'Series {index + 1}' for index in range(len(names))])
-                self.assertIsNone(target['encoding']['color']['legend'])
-                self.assertEqual({row['series_name'] for row in full['data']['values']}, set(names))
-                self.assertNotIn('repeat', json.dumps(target['encoding'].get('color')))
+                self.assertEqual(project_rows(full), semantic_rows(target))
+                full_names = {row['series_name'] for row in full['data']['values']}
+                if kind.endswith('_1'):
+                    self.assertTrue(all('series' not in row for row in target['data']['values']))
+                    self.assertNotIn('color', target['encoding'])
+                    self.assertEqual(full_names, {'Series 1'})
+                else:
+                    names = list(dict.fromkeys(row['series'] for row in target['data']['values']))
+                    self.assertEqual(names, [f'Series {i + 1}' for i in range(len(names))])
+                    self.assertEqual(full_names, set(names))
+                    self.assertNotIn('legend', target['encoding']['color'])
 
     def test_actual_bar_positions_and_discrete_domains_match_gt_row_order(self):
         cases = [(kind, reverse, build_pair(kind, plain_bar(kind, reverse)))
                  for kind in ('barh_n', 'barv_n') for reverse in (False, True)]
-        outputs = render_specs([spec for _, _, pair in cases for spec in pair[:2]])
+        outputs = render_specs([spec for _, _, (full, target, _) in cases for spec in (full, render_spec(target))])
         for index, (kind, reverse, (full, target, _)) in enumerate(cases):
             with self.subTest(kind=kind, reverse=reverse):
                 rendered_full, rendered_gt = outputs[index * 2:index * 2 + 2]
@@ -73,7 +81,7 @@ class VisibleContractTests(unittest.TestCase):
                 self.assertEqual(actual['domain'], expected)
                 self.assertEqual(actual['positions'], sorted(actual['positions']))
 
-    def test_categorical_lines_render_every_label_despite_saved_tick_subset(self):
+    def test_preview_renders_discrete_labels_without_axis_guides_in_gt(self):
         specs = []
         originals = []
         for mode in ('categorical', 'temporal'):
@@ -85,9 +93,10 @@ class VisibleContractTests(unittest.TestCase):
                        xlim=[-.5, 11.5], ylim=[0, 16], markevery=[None, None],
                        _render_axes={'xticks': [0, 4, 8], 'xticklabels': [labels[i] for i in (0, 4, 8)]})
             full, target, _ = build_pair('line_n', cfg)
-            specs.extend((full, target))
+            specs.extend((full, render_spec(target)))
             originals.extend((labels, labels))
-            self.assertEqual(full['layer'][0]['encoding']['x']['axis']['values'], list(range(12)))
+            self.assertNotIn('axis', target['encoding']['x'])
+            self.assertEqual(list(dict.fromkeys(row['x'] for row in target['data']['values'])), labels)
         for spec, labels, output in zip(specs, originals, render_specs(specs)):
             self.assertEqual(output['warnings'], [])
             self.assertTrue(audit_text(spec, output['svg'])['passed'])
@@ -109,7 +118,8 @@ class VisibleContractTests(unittest.TestCase):
                     domain = [100, .1] if reverse else [.1, 100]
                     cfg['_render_axes'] = {axis + 'scale': 'log', axis + 'lim': domain}
                     full, target, _ = build_pair(kind, cfg)
-                    cases.extend((kind, axis, reverse, spec) for spec in (full, target))
+                    self.assertNotIn("reverse", target["encoding"][axis].get("scale", {}))
+                    cases.extend((kind, axis, direction, spec) for direction, spec in ((reverse, full), (False, render_spec(target))))
         for case, result in zip(cases, render_specs([case[3] for case in cases])):
             kind, axis, reverse, _ = case
             with self.subTest(kind=kind, axis=axis, reverse=reverse):
@@ -120,12 +130,15 @@ class VisibleContractTests(unittest.TestCase):
                 increasing = reverse if axis == 'y' else not reverse
                 self.assertEqual(scale['positions'], sorted(scale['positions'], reverse=not increasing))
 
-    def test_hidden_legend_is_still_absent_in_full_and_gt_svg(self):
+    def test_hidden_source_names_do_not_leak_into_preview_svg(self):
         cfg = fixture('line_n')
         cfg.update(show_legend=False, series_names=['Secret source name', 'Other hidden name'])
         full, target, _ = build_pair('line_n', cfg)
-        for result in render_specs([full, target]):
-            self.assertNotIn('role-legend-label', result['svg'])
+        before = copy.deepcopy(target)
+        self.assertNotIn('legend', target['encoding']['color'])
+        for result in render_specs([full, render_spec(target)]):
+            # Preview derives its own guides; source legend remains hidden.
+            self.assertEqual(target, before)
             self.assertNotIn('Secret source name', result['svg'])
             self.assertNotIn('Other hidden name', result['svg'])
 

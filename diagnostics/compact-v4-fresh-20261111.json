@@ -1,0 +1,18 @@
+{
+  "seed": 20261111,
+  "counts": {
+    "barh_1": 3,
+    "barh_n": 3,
+    "barv_1": 3,
+    "barv_n": 3,
+    "barv_stack": 3,
+    "line_1": 3,
+    "line_n": 3,
+    "scatter_1": 3,
+    "scatter_n": 3
+  },
+  "controls": {},
+  "workers": 4,
+  "target_side": 1036,
+  "notes": "VSR公开gen.sh默认每类50；运行前先smoke，再使用独立输出目录。"
+}
