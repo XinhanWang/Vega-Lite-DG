@@ -8,6 +8,7 @@ import math
 from typing import Any
 
 from ordering import first_seen, needs_path_order, needs_stack_endpoints, visual_rows
+from spec_format import format_spec
 
 
 KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack",
@@ -150,7 +151,7 @@ def normalize(full: dict) -> dict:
     """Create minimal training GT; applying it again is idempotent."""
     if _semantic(full) is None:
         validate_target(full)
-        return copy.deepcopy(full)
+        return format_spec(full)
     context = _context(full)
     kind = context["kind"]
     result: dict[str, Any] = {"data": {"values": _data(context)}}
@@ -197,6 +198,7 @@ def normalize(full: dict) -> dict:
             result["mark"] = "line"
             encoding["order"] = {"field": "path_order", "type": "quantitative"}
     result["encoding"] = encoding
+    result = format_spec(result)
     validate_target(result)
     return result
 
@@ -321,13 +323,13 @@ def validate_canonical(spec: dict) -> None:
         if {"stack_order", "start"} & fields:
             interval["stack"] = None
         expected = [{"mark": "bar"}, {"mark": "rule", "encoding": {axis: interval, axis + "2": {"field": "upper"}}}]
-        check(spec["layer"] == expected, "unsupported layer structure")
+        check(format_spec(spec)["layer"] == format_spec({"layer": expected})["layer"], "unsupported layer structure")
         used.update({"lower", "upper"})
         mark = "bar"
     else:
         mark = spec.get("mark")
-        check(mark in ("bar", "line", "point") if isinstance(mark, str) else mark == {"type": "line", "order": False}, "unsupported mark")
-        mark = mark if isinstance(mark, str) else "line"
+        check(mark in ("bar", "line", "point") if isinstance(mark, str) else mark in ({"type": "bar"}, {"type": "line"}, {"type": "point"}, {"type": "line", "order": False}), "unsupported mark")
+        mark = mark if isinstance(mark, str) else mark["type"]
         check("lower" not in fields, "errors need explicit layers")
     check((mark == "bar") == bar, "mark/data mismatch")
     if bar:

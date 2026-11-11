@@ -8,6 +8,11 @@ def canonical(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
 
 
+def serialize(obj):
+    """Artifact JSON preserves insertion order; hashing uses canonical()."""
+    return json.dumps(obj, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+
+
 def digest(obj):
     return hashlib.sha256(canonical(obj).encode()).hexdigest()
 
@@ -37,7 +42,7 @@ def jsonl(file, rows):
     destination = Path(file)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + '.tmp')
-    temporary.write_text(''.join(canonical(x) + '\n' for x in rows), encoding='utf-8')
+    temporary.write_text(''.join(serialize(x) + '\n' for x in rows), encoding='utf-8')
     temporary.replace(destination)
 
 

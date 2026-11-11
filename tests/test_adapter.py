@@ -204,7 +204,7 @@ class AdapterTests(unittest.TestCase):
         line = next(layer for layer in full["layer"] if layer["name"] == "line_0")
         self.assertEqual(line["encoding"]["order"]["field"], "point_index")
         self.assertEqual(len(line["transform"]), 1)
-        self.assertEqual(compact["mark"], "line")
+        self.assertEqual(compact["mark"], {"type": "line"})
         self.assertNotIn("layer", compact)
         self.assertEqual(project_rows(full), semantic_rows(compact))
         self.assertEqual(next(layer for layer in full["layer"] if layer["name"] == "line_0")["mark"]["strokeDash"], [6, 3])

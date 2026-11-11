@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from .config import ROOT, KINDS, GENERATOR_VERSION, CONTRACT
-from .io import read, dump, jsonl, digest, canonical, observation_key
+from .io import read, dump, jsonl, digest, canonical, observation_key, serialize
 
 
 def audit_visible_order(kind, rows, primary):
@@ -155,7 +155,7 @@ def validate(out):
             accepted.append({**row, 'status': 'accepted', 'image': row['sample'] + '/chart.png', 'full': row['sample'] + '/full.vl.json', 'compact': row['sample'] + '/compact.vl.json', 'source': row['sample'] + '/source.json', 'geometry': row['sample'] + '/geometry.json'})
     jsonl(out / 'manifest.jsonl', accepted)
     jsonl(out / 'rejected.jsonl', failures)
-    jsonl(out / 'train.jsonl', [{'id': r['id'], 'image': r['image'], 'messages': [{'role': 'user', 'content': '将图表转换为精简 Vega-Lite JSON。'}, {'role': 'assistant', 'content': canonical(read(out / r['compact']))}]} for r in accepted])
+    jsonl(out / 'train.jsonl', [{'id': r['id'], 'image': r['image'], 'messages': [{'role': 'user', 'content': '将图表转换为精简 Vega-Lite JSON。'}, {'role': 'assistant', 'content': serialize(read(out / r['compact']))}]} for r in accepted])
     summary = {'requested': len(records), 'accepted': len(accepted), 'rejected': len(failures), 'counts': dict(collections.Counter(r['kind'] for r in accepted)), 'data_families': {kind: dict(collections.Counter(str(r.get('data_family')) for r in accepted if r['kind'] == kind)) for kind in KINDS}, 'semantic_unique': len({r['semantic_sha256'] for r in accepted}), 'generator_version': run_metadata.get('generator_version', 'legacy/unknown'), 'projection_version': run_metadata.get('projection_version'), 'operation': run_metadata.get('operation', 'generate'), 'contract': CONTRACT, 'compact_preview_rendered': not semantic_only, 'limitations': ['Automated structural, numeric, render and coordinate checks do not certify all typography or visual readability.', 'No paper quality-filter checkpoint or 800K-scale dataset reproduction is claimed.']}
     dump(out / 'validation.json', summary)
     print(json.dumps(summary, ensure_ascii=False))

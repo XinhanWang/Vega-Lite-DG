@@ -227,7 +227,7 @@ class CompactSemanticV4Tests(unittest.TestCase):
 
     def test_real_single_point_line_visible_only_in_preview(self):
         gt = normalize(full_for('line_1', matrix=[[3]], x_values=[1], x_labels=['1'], show_legend=False))
-        self.assertEqual(gt['mark'], 'line')
+        self.assertEqual(gt['mark'], {'type': 'line'})
         preview = render_spec(gt)
         self.assertEqual(preview['mark'], {'type': 'line', 'point': True})
         self.assertEqual(gt['data'], preview['data'])

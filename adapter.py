@@ -19,6 +19,7 @@ import re
 from typing import Any
 
 from ordering import first_seen, visual_rows
+from spec_format import format_spec
 
 
 KINDS = (
@@ -26,7 +27,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -724,6 +725,7 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
                 item.update(status='data_preserved_layout_fitted', detail='Source observation positions, stack and error endpoints preserved; plotting domains expand to include paint bounds.')
             elif item['feature'] == 'render_time_axes':
                 item.update(status='adapted_for_visibility', detail='Native scales, inversion and guide choices retained; unsafe domain limits expanded before rendering.')
+    full = format_spec(full)
     compact = normalize_geometry(full)
     return full, compact, source
 
@@ -738,6 +740,7 @@ def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     source['presentation'] = copy.deepcopy(full['usermeta']['presentation'])
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     full['usermeta']['plot_layout']['final_plot_size'] = [full['width'], full['height']]
+    full = format_spec(full)
     compact = normalize(full)
     source['training_contract'] = 'compact-v4: semantic values, identities, variables, relations and necessary order; presentation exists only in full/preview'
     return full, compact, source
@@ -829,7 +832,7 @@ def normalize_geometry(full: dict) -> dict:
             metadata.pop("presentation", None)
         return spec
 
-    return clean_view(result)
+    return format_spec(clean_view(result))
 
 
 def normalize(full: dict) -> dict:

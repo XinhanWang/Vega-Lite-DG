@@ -85,6 +85,8 @@ def generate(args):
             raise ValueError('generate --resume requires a generation run, not a projection/migration run')
         if previous.get('generator_version') != GENERATOR_VERSION or previous.get('contract') != CONTRACT:
             raise ValueError('Resume requires the same generator and GT contract; use reproject for a historical run')
+        if previous.get('projection_version') != PROJECTION_VERSION:
+            raise ValueError('Resume requires the same projection version; use reproject for a historical run')
         if previous['config_sha256'] != fingerprint:
             raise ValueError('Resume config differs from original run')
     out.mkdir(parents=True, exist_ok=True)

@@ -18,6 +18,7 @@
 !/text_layout.py
 !/render.mjs
 !/ordering.py
+!/spec_format.py
 !/generation/
 /generation/*
 !/generation/*.py

@@ -148,3 +148,5 @@ python3 pipeline.py reproject --source runs/old_run --output runs/new_compact_v4
 这一路径复制保存的 full/config/source/PNG/SVG/geometry 等证据，逐文件验证 SHA-256，重新生成 compact、预览规格及训练 JSONL；不调用采样器或渲染器。旧 compact 图像不以当前名称复制，以免误认为新 GT 的渲染结果。运行报告明确标记预览未渲染，并只验收复用的 full 图像；普通 generate/reproject 仍实际渲染 full 与 compact-preview。当前 GT 合约是 compact-v4，与采样器版本独立；旧运行不能直接 generate --resume 混入新 GT。
 
 验收与剩余边界见 docs/compact-v4-delivery-20261111.md 和 docs/compact-v4-independent-audit-20261111.md。
+
+Vega-Lite output uses object marks (`{"type":"bar"}`). Unit views follow `title → data → mark → encoding → other keys`; layered views follow `title → data → layer → other keys`, including nested layers. Absent keys are skipped. Assistant JSON in `train.jsonl` preserves this order. Historical string marks are accepted and normalized; observation values are preserved and hash serialization remains independent.

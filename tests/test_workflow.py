@@ -51,6 +51,19 @@ class WorkflowTests(unittest.TestCase):
                     pipeline.generate(Namespace(config=str(config_file), output=str(output), workers=None, resume=True))
                 self.assertEqual((output / 'run.json').read_bytes(), before)
 
+    def test_resume_refuses_previous_projection_format(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dump(root / 'config.json', {})
+            for version in (None, '3.0.0'):
+                dump(root / 'run/run.json', {'generator_version': GENERATOR_VERSION,
+                    'contract': CONTRACT, 'projection_version': version})
+                before = (root / 'run/run.json').read_bytes()
+                with self.assertRaisesRegex(ValueError, 'same projection version'):
+                    pipeline.generate(Namespace(config=str(root / 'config.json'),
+                        output=str(root / 'run'), workers=None, resume=True))
+                self.assertEqual((root / 'run/run.json').read_bytes(), before)
+
     def test_matching_sample_provenance_reuses_saved_configuration_without_sampling(self):
         from workflow.samples import obtain_sample
         with tempfile.TemporaryDirectory() as directory:

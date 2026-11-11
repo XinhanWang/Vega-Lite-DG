@@ -102,6 +102,10 @@ class CompactMigrationTests(unittest.TestCase):
             self.assertEqual(validate(out)['accepted'],1)
             pair=json.loads((out/'train.jsonl').read_text())
             self.assertEqual(json.loads(pair['messages'][1]['content']),read(out/row['sample']/'compact.vl.json'))
+            from spec_format import format_spec
+            from workflow.io import serialize
+            self.assertEqual(pair['messages'][1]['content'],
+                serialize(format_spec(read(out/row['sample']/'compact.vl.json'))))
 
     def test_generate_resume_refuses_migration_without_rewriting_run(self):
         from generation import GENERATOR_VERSION

@@ -39,7 +39,7 @@ class SinglePointLineTests(unittest.TestCase):
             for mode in ('numeric', 'categorical', 'temporal'):
                 with self.subTest(kind=kind, mode=mode):
                     full, target, _ = singleton_pair(kind, mode)
-                    self.assertEqual(target['mark'], 'line')
+                    self.assertEqual(target['mark'], {'type': 'line'})
                     self.assertEqual(render_spec(target)['mark'], {'type': 'line', 'point': True})
                     self.assertEqual(project_rows(full), semantic_rows(target))
                     self.assertEqual(normalize(target), target)
@@ -51,7 +51,7 @@ class SinglePointLineTests(unittest.TestCase):
         full['data']['values'] = [row for row in full['data']['values']
                                   if row['series_index'] == 0 or row['point_index'] == 0]
         target = normalize(full)
-        self.assertEqual(target['mark'], 'line')
+        self.assertEqual(target['mark'], {'type': 'line'})
         self.assertEqual(render_spec(target)['mark'], {'type': 'line', 'point': True})
         self.assertEqual(target['encoding']['order'], {'field': 'path_order', 'type': 'quantitative'})
         self.assertEqual(project_rows(full), semantic_rows(target))
@@ -59,7 +59,7 @@ class SinglePointLineTests(unittest.TestCase):
     def test_ordinary_multivertex_line_target_stays_minimal(self):
         for kind in ('line_1', 'line_n'):
             full, target, _ = build_pair(kind, fixture(kind))
-            self.assertEqual(target['mark'], 'line')
+            self.assertEqual(target['mark'], {'type': 'line'})
             self.assertEqual(normalize(full), target)
             self.assertNotIn('order', target['encoding'])
 
