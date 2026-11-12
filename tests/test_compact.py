@@ -29,7 +29,7 @@ class CompactTests(unittest.TestCase):
                 self.assertEqual(len(target["data"]["values"]), len(full["data"]["values"]))
                 self.assertLessEqual(set(target), {"data", "title", "mark", "encoding", "layer"})
                 for row in target["data"]["values"]:
-                    self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper", "path_order", "stack_order", "start", "end", "category_instance", "x_instance", "series_instance"})
+                    self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper", "path_order", "stack_order", "start", "end", "category_id", "x_id", "series_id"})
                 self.assertEqual(target["encoding"]["x"]["title"], "Sample / time (s)")
                 self.assertEqual(target["encoding"]["y"]["title"], "Response (mg)")
 
@@ -54,13 +54,13 @@ class CompactTests(unittest.TestCase):
         target = normalize(full)
         self.assertEqual([r["category"] for r in target["data"]["values"]], ["repeat", "repeat", "repeat", "repeat", "Z", "Z"])
         self.assertEqual([r["series"] for r in target["data"]["values"]], ["repeat"] * 6)
-        self.assertEqual(target["encoding"]["x"]["field"], "category_instance")
-        self.assertEqual(target["encoding"]["color"]["field"], "series_instance")
+        self.assertEqual(target["encoding"]["x"]["field"], "category_id")
+        self.assertEqual(target["encoding"]["color"]["field"], "series_id")
         self.assertNotIn("labelExpr", json.dumps(target))
         expected = project_rows(full)
         self.assertEqual(semantic_rows(target), expected)
-        self.assertEqual([r["category_instance"] for r in expected], [0, 0, 1, 1, 2, 2])
-        self.assertEqual([r["series_instance"] for r in expected], [0, 1, 0, 1, 0, 1])
+        self.assertEqual([r["category_id"] for r in expected], ["C1", "C1", "C2", "C2", "C3", "C3"])
+        self.assertEqual([r["series_id"] for r in expected], ["S1", "S2", "S1", "S2", "S1", "S2"])
         self.assertTrue(all(r["series"] == "repeat" for r in expected))
 
     def test_duplicate_scatter_observations_are_not_deduplicated(self):
@@ -77,7 +77,7 @@ class CompactTests(unittest.TestCase):
             target = normalize(self.build("line_n", cfg))
             self.assertEqual([row["x"] for row in target["data"]["values"]], sorted(x for x in xs for _ in range(2)))
             for series in range(2):
-                rows = [r for r in target["data"]["values"] if r["series_instance"] == series]
+                rows = [r for r in target["data"]["values"] if r["series_id"] == f"S{series + 1}"]
                 order = target["encoding"].get("order", {}).get("field")
                 if order:
                     rows.sort(key=lambda row: row[order])
@@ -106,7 +106,7 @@ class CompactTests(unittest.TestCase):
     def test_grouped_and_stacked_structure(self):
         for kind, offset in [("barh_n", "yOffset"), ("barv_n", "xOffset")]:
             target = normalize(self.build(kind))
-            self.assertEqual(target["encoding"][offset]["field"], "series_instance")
+            self.assertEqual(target["encoding"][offset]["field"], "series_id")
         cfg = fixture("barv_stack")
         cfg.update(matrix=[[25, 20, 40], [75, 80, 60]], bottoms=[[0, 0, 0], [25, 20, 40]], stack_mode="percent")
         target = normalize(self.build("barv_stack", cfg))

@@ -70,11 +70,11 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual([r["plot_x"] for r in source["rows"]], [-0.15, 0.15, 0.85, 1.15, 1.85, 2.15])
         rows = compact["data"]["values"]
         self.assertEqual([r["category"] for r in rows], ["repeat", "repeat", "repeat", "repeat", "Z", "Z"])
-        self.assertEqual([r["category_instance"] for r in rows], [0, 0, 1, 1, 2, 2])
+        self.assertEqual([r["category_id"] for r in rows], ["C1", "C1", "C2", "C2", "C3", "C3"])
         self.assertEqual([r["series"] for r in rows], ["repeat"] * 6)
-        self.assertEqual([r["series_instance"] for r in rows], [0, 1, 0, 1, 0, 1])
-        self.assertEqual(compact["encoding"]["color"]["field"], "series_instance")
-        self.assertEqual(compact["encoding"]["xOffset"]["field"], "series_instance")
+        self.assertEqual([r["series_id"] for r in rows], ["S1", "S2", "S1", "S2", "S1", "S2"])
+        self.assertEqual(compact["encoding"]["color"]["field"], "series_id")
+        self.assertEqual(compact["encoding"]["xOffset"]["field"], "series_id")
         self.assertNotIn("labelExpr", json.dumps(compact))
         self.assertEqual(project_rows(full), semantic_rows(compact))
 
@@ -190,8 +190,8 @@ class AdapterTests(unittest.TestCase):
                 self.assertIsNone(enc["sort"])
                 self.assertEqual([r["x"] for r in compact["data"]["values"]], labels)
                 if mode == "categorical":
-                    self.assertEqual(enc["field"], "x_instance")
-                    self.assertEqual([r["x_instance"] for r in compact["data"]["values"]], [0, 1, 2])
+                    self.assertEqual(enc["field"], "x_id")
+                    self.assertEqual([r["x_id"] for r in compact["data"]["values"]], ["X1", "X2", "X3"])
                 if mode == "temporal":
                     self.assertEqual([r["x_temporal"] for r in source["rows"]], ["2024-01-01", "2024-02-01", "2024-03-01"])
                     self.assertIn("equal calendar periods", source["semantic"]["temporal_spacing"])

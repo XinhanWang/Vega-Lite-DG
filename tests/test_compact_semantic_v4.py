@@ -30,14 +30,15 @@ def legacy_target(full):
     rows = project_rows(full, version=3)
     target = {'data': {'values': copy.deepcopy(rows)}, 'encoding': {}}
     for field, channel in [('category', 'x'), ('x', 'x'), ('series', 'color')]:
-        identity = field + '_instance'
+        identity = field + '_id'
         if identity not in rows[0]:
             continue
+        ids = list(dict.fromkeys(r[identity] for r in rows))
         labels = {r[identity]: r[field] for r in rows}
-        expr = json.dumps([labels[i] for i in range(len(labels))], ensure_ascii=False) + '[datum.value]'
+        expr = json.dumps([labels[i] for i in ids], ensure_ascii=False) + '[datum.value]'
         target['encoding'][channel] = {'field': field, 'legend' if channel == 'color' else 'axis': {'labelExpr': expr}}
         for row in target['data']['values']:
-            row[field] = row.pop(identity)
+            row[field] = ids.index(row.pop(identity))
     return target
 
 
@@ -73,19 +74,19 @@ class CompactSemanticV4Tests(unittest.TestCase):
         gt = normalize(full_for('barv_n'))
         rows = gt['data']['values']
         self.assertEqual([r['category'] for r in rows], ['repeat', 'repeat', 'repeat', 'repeat', 'Z', 'Z'])
-        self.assertEqual([r['category_instance'] for r in rows], [0, 0, 1, 1, 2, 2])
-        self.assertEqual([r['series_instance'] for r in rows], [0, 1, 0, 1, 0, 1])
+        self.assertEqual([r['category_id'] for r in rows], ["C1", "C1", "C2", "C2", "C3", "C3"])
+        self.assertEqual([r['series_id'] for r in rows], ["S1", "S2", "S1", "S2", "S1", "S2"])
         self.assertTrue(all(r['series'] == 'repeat' for r in rows))
-        self.assertEqual(gt['encoding']['x']['field'], 'category_instance')
-        self.assertEqual(gt['encoding']['color']['field'], 'series_instance')
-        self.assertEqual(gt['encoding']['xOffset']['field'], 'series_instance')
+        self.assertEqual(gt['encoding']['x']['field'], 'category_id')
+        self.assertEqual(gt['encoding']['color']['field'], 'series_id')
+        self.assertEqual(gt['encoding']['xOffset']['field'], 'series_id')
 
     def test_duplicate_categorical_and_temporal_line_labels(self):
         for mode in ['categorical', 'temporal']:
             gt = normalize(full_for('line_1', x_mode=mode, x_labels=['Jan', 'Jan', 'Feb']))
             self.assertEqual([r['x'] for r in gt['data']['values']], ['Jan', 'Jan', 'Feb'])
-            self.assertEqual([r['x_instance'] for r in gt['data']['values']], [0, 1, 2])
-            self.assertEqual(gt['encoding']['x']['field'], 'x_instance')
+            self.assertEqual([r['x_id'] for r in gt['data']['values']], ['X1', 'X2', 'X3'])
+            self.assertEqual(gt['encoding']['x']['field'], 'x_id')
 
     def test_single_anonymous_and_visible_named_series(self):
         for kind in ['barh_1', 'barv_1', 'line_1', 'scatter_1']:
@@ -118,7 +119,7 @@ class CompactSemanticV4Tests(unittest.TestCase):
             self.assertEqual([r['x'] for r in gt['data']['values']], sorted(xs * 2))
             order = gt['encoding'].get('order', {}).get('field')
             for s in [0, 1]:
-                rows = [r for r in gt['data']['values'] if r['series_instance'] == s]
+                rows = [r for r in gt['data']['values'] if r['series_id'] == f'S{s + 1}']
                 if order:
                     rows.sort(key=lambda r: r[order])
                 expected = list(zip(xs, fixture('line_n')['matrix'][s]))

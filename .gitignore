@@ -88,3 +88,8 @@
 
 # Display-only compilation of semantic training targets.
 !/compact_display.py
+
+# Semantic GT object-identity migration and canonical row order.
+!/identity.py
+
+!/tests/fixtures/identity-contract.json

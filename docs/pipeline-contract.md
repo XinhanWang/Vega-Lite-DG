@@ -56,10 +56,10 @@ full, compact, source = build_pair("line_n", sample["config"])
 
 通常，柱图每行是 `category/value/series`，折线和散点每行是 `x/y/series`。GT 不包含生产 ID、像素坐标、字体配色或原绘图区范围。必要的可重绘信息例外如下：
 
-- 误差区间用 `lower/upper` 表示，GT 以柱图加显式 rule 图层重绘。
+- 误差区间用 `lower/upper` 表示，GT 以柱图加原生 errorbar 图层重绘。
 - 堆叠增加 `stack_order` 维护片段连接关系；异常基线或非普通正负累计堆叠改用显式 `start/end`，避免被重新堆叠成不同形状。
 - 非单调折线路径在按可见 x 排序后，以 `path_order` 保留原连接。反向遍历但边相同的路径不必新增该列。
-- 重复类别/系列名称采用同一字段内的整数身份与 `labelExpr` 显示原文字，避免相同名称被错误合并。审计投影可添加 `*_instance` 区分这些身份；这些审计字段不写入 GT。
+- 重复类别/系列保留原文，以 `category_id=C1…`、离散 X 的 `x_id=X1…`、`series_id=S1…` 区分实际对象；仅对应维度实际重名时整列加入。Renderer 在副本中生成 `labelExpr`，表达式不进入 GT。完整字段顺序、稳定工程 key 与旧字段迁移见 [GT 身份契约](gt-identity-contract.md)。
 
 `normalize(full)` 构造 GT，`normalize(compact)` 幂等。`project_rows(full) == semantic_rows(compact)` 比较的是同一可见顺序下的观察、重复身份和必要连接信息。只有视觉样式变化而可见语义不变时，GT 才保持一致；改变坐标方向、图例可见性等会相应改变 GT。
 

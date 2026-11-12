@@ -91,7 +91,7 @@ const req=createRequire(path.resolve(process.env.VSR_TEXT_TEST_MODULES,'__errorb
   assert.equal(bars.length,gt.data.values.length,name+' bar count');assert.equal(rules.length,bars.length,name+' error count');
   const h=gt.encoding.x.field==='value',val=h?'x':'y',cat=h?'y':'x';
   for(const {i} of rules){
-   const bar=bars.find(b=>['category','category_instance','series','series_instance'].every(k=>b.i.datum[k]===i.datum[k]))?.i;
+   const bar=bars.find(b=>['category','category_id','series','series_id'].every(k=>b.i.datum[k]===i.datum[k]))?.i;
    assert(bar,name+' matching bar');
    const actual=[i[val],i[val+'2']].sort((a,b)=>a-b),expected=[view.scale(val)(i.datum.lower),view.scale(val)(i.datum.upper)].sort((a,b)=>a-b);
    assert([...expected,...actual].every(Number.isFinite),name+' nonfinite geometry');
