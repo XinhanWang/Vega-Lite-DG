@@ -67,19 +67,24 @@ def audit_geometry(kind, cfg, spec, geometry):
         expected_legend = categories
         if kind == "pie" and not compact and cfg["label_mode"] == "legend_value":
             expected_legend = [row["category"] + ": " + f'{row["value"]:g}' + ("%" if cfg["value_mode"] == "percent" else "") for row in rows]
-        if legend != expected_legend:
+        legend_matches = collections.Counter(legend) == collections.Counter(expected_legend) if compact else legend == expected_legend
+        if not legend_matches:
             errors.append("Rendered legend labels/order differ from data.values")
     if kind == "pie":
         sectors = elements("sectors_")
-        if [element["datum"]["category"] for element in sectors] != categories:
+        if not compact and [element["datum"]["category"] for element in sectors] != categories:
             errors.append("Arc scenegraph order differs from data.values")
+        if compact and collections.Counter(element["datum"]["category"] for element in sectors) != collections.Counter(categories):
+            errors.append("Arc categories differ from data.values")
         total = sum(row["value"] for row in rows)
         angle = 0 if compact else cfg["rotation"]
-        for row, element in zip(rows, sectors):
+        sector_rows = [rows_by_category[element["datum"]["category"]] for element in sectors] if compact else rows
+        for row, element in zip(sector_rows, sectors):
             arc = element["arc"]
             extent = row["value"] / total * 2 * math.pi
             start, end = sorted((arc["startAngle"], arc["endAngle"]))
-            if abs(start - angle) > 1e-7 or abs(end - angle - extent) > 1e-7:
+            extent_matches = abs((end - start if compact else end - angle) - extent) <= 1e-7
+            if not extent_matches or (not compact and abs(start - angle) > 1e-7):
                 errors.append("Rendered sector angles differ from ordered values")
             expected_inner = cfg["size"] * .34 * cfg["hole_ratio"] if not compact and cfg["donut"] else 0
             if abs(arc["innerRadius"] - expected_inner) > 1e-7:

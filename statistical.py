@@ -84,33 +84,57 @@ OPTION_KEYS = ("size", "title", "legend_position", "show_legend", "hole_ratio", 
                "orientation", "box_size", "point_shape", "value_title")
 
 
+def project_rows(full):
+    """Copy semantic columns in Full order, without rounding or recomputing data."""
+    kind = full["usermeta"]["semantic"]["kind"]
+    fields = ("category", "value") if kind == "pie" else ("category", "lower", "q1", "median", "q3", "upper", "outliers")
+    return [{field: copy.deepcopy(row[field]) for field in fields} for row in full["data"]["values"]]
+
+
+def _field_semantics(full, channel):
+    """Retain explicit scientific labels/formats from Full, never infer units."""
+    from compact import unit_format
+    result = {}
+    for view in [full, *full.get("layer", [])]:
+        definition = view.get("encoding", {}).get(channel, {})
+        if "field" not in definition:
+            continue
+        guide = definition.get("legend" if channel == "color" else "axis") or {}
+        title = guide.get("title", definition.get("title"))
+        if "title" not in result and title not in (None, "", []):
+            result["title"] = copy.deepcopy(title)
+        if ("axis" not in result and channel in ("x", "y") and definition.get("type") == "quantitative"
+                and unit_format(guide.get("format"), guide.get("formatType", "number"))):
+            result["axis"] = {"format": guide["format"]}
+    return result
+
+
 def compact_spec(full):
     semantic = full["usermeta"]["semantic"]
     options = semantic["options"]
-    rows = canonical_numbers([{key: value for key, value in row.items() if key != "row_id"} for row in full["data"]["values"]])
+    rows = project_rows(full)
     result = {"data": {"values": rows}}
-    if options.get("title"):
-        result["title"] = options["title"]
+    title = full.get("title", options.get("title"))
+    if isinstance(title, dict):
+        title = title.get("text")
+    if title:
+        result["title"] = copy.deepcopy(title)
     if semantic["kind"] == "pie":
-        result.update(mark={"type": "arc"}, transform=[{"window": [{"op": "row_number", "as": "order"}]}],
-                      encoding={"theta": {"field": "value", "type": "quantitative", "stack": True,
-                                          "title": "Share (%)" if options["value_mode"] == "percent" else "Value"},
-                                "color": {"field": "category", "type": "nominal", "sort": None},
-                                "order": {"field": "order", "type": "quantitative"}})
+        result.update(mark={"type": "arc"},
+                      encoding={"theta": {"field": "value", "type": "quantitative", **_field_semantics(full, "theta")},
+                                "color": {"field": "category", "type": "nominal", **_field_semantics(full, "color")}})
         return format_spec(result)
     horizontal = options["orientation"] == "horizontal"
     category_axis, value_axis = ("y", "x") if horizontal else ("x", "y")
     result["encoding"] = {
-        category_axis: {"field": "category", "type": "nominal", "sort": None},
-        value_axis: {"field": "lower", "type": "quantitative", "title": options["value_title"],
-                     "scale": {"zero": False}}}
+        category_axis: {"field": "category", "type": "nominal", "sort": None, **_field_semantics(full, category_axis)}}
     result["layer"] = [
-        {"mark": {"type": "rule"}, "encoding": {value_axis: {"field": "lower", "type": "quantitative"},
+        {"mark": {"type": "rule"}, "encoding": {value_axis: {"field": "lower", "type": "quantitative", **_field_semantics(full, value_axis)},
                                                 value_axis + "2": {"field": "upper"}}},
-        {"mark": {"type": "bar", "filled": False},
+        {"mark": {"type": "bar"},
          "encoding": {value_axis: {"field": "q1", "type": "quantitative"},
                       value_axis + "2": {"field": "q3"}}},
-        {"mark": {"type": "tick", "orient": "vertical" if horizontal else "horizontal"},
+        {"mark": {"type": "tick"},
          "encoding": {value_axis: {"field": "median", "type": "quantitative"}}},
         {"transform": [{"flatten": ["outliers"]}], "mark": {"type": "point"},
          "encoding": {value_axis: {"field": "outliers", "type": "quantitative"}}}]
@@ -146,7 +170,9 @@ def validate_compact(spec):
     check(all(isinstance(row["category"], str) and row["category"] for row in rows), "category names")
     check(len({row["category"] for row in rows}) == len(rows), "duplicate categories")
     if "title" in spec:
-        check(isinstance(spec["title"], str) and bool(spec["title"]), "title")
+        title = spec["title"]
+        check(isinstance(title, str) and bool(title) or isinstance(title, list) and bool(title)
+              and all(isinstance(line, str) for line in title), "title")
     for row in rows:
         values = [row["value"]] if kind == "pie" else [row[key] for key in ("lower", "q1", "median", "q3", "upper")]
         if kind == "boxplot":
@@ -159,23 +185,17 @@ def validate_compact(spec):
             lower, q1, median, q3, upper = [Decimal(str(row[key])) for key in ("lower", "q1", "median", "q3", "upper")]
             low, high = q1 - Decimal("1.5") * (q3 - q1), q3 + Decimal("1.5") * (q3 - q1)
             check(low <= lower <= q1 <= median <= q3 <= upper <= high, "five-number ordering/fences")
-            check(row["outliers"] == sorted(row["outliers"]), "outlier order")
             check(all(Decimal(str(value)) < low or Decimal(str(value)) > high for value in row["outliers"]), "outliers inside fences")
     enc = spec.get("encoding", {})
     check(isinstance(enc, dict) and all(isinstance(value, dict) for value in enc.values()), "encoding objects")
     options = {"title": spec.get("title")}
-    if kind == "pie":
-        title = enc.get("theta", {}).get("title")
-        check(title in {"Share (%)", "Value"}, "value name/unit")
-        options["value_mode"] = "percent" if title == "Share (%)" else "absolute"
-        if options["value_mode"] == "percent":
-            check(sum(Decimal(str(row["value"])) for row in rows) == 100, "percentage total")
-    else:
+    if kind == "boxplot":
         horizontal = enc.get("y", {}).get("field") == "category"
         options["orientation"] = "horizontal" if horizontal else "vertical"
-        options["value_title"] = enc.get("x" if horizontal else "y", {}).get("title")
-        check(isinstance(options["value_title"], str) and bool(options["value_title"]), "value name/unit")
-    full = {"data": {"values": rows}, "usermeta": {"semantic": {"kind": kind, "options": options}}}
+        layers = spec.get("layer")
+        check(isinstance(layers, list) and len(layers) == 4, "four statistical layers required")
+    full = {"data": {"values": rows}, "encoding": enc, "layer": spec.get("layer", []),
+            "usermeta": {"semantic": {"kind": kind, "options": options}}}
     check(format_spec(spec) == compact_spec(full), "unnecessary settings or incorrect statistical mapping")
 
 

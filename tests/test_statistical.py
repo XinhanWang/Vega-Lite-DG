@@ -30,8 +30,10 @@ class StatisticalTests(unittest.TestCase):
                 cfg = sample_config('boxplot', 42, {'orientation': orientation, 'outlier_mode': mode})
                 full, target, source = build_pair('boxplot', cfg)
                 axis = 'x' if orientation == 'horizontal' else 'y'
-                self.assertEqual(target['encoding'][axis]['scale'], {'zero': False})
+                self.assertNotIn(axis, target['encoding'])
                 self.assertEqual([layer['mark']['type'] for layer in target['layer']], ['rule', 'bar', 'tick', 'point'])
+                self.assertTrue(all(set(layer['mark']) == {'type'} for layer in target['layer']))
+                self.assertEqual(target['layer'][0]['encoding'][axis]['title'], cfg['value_title'])
                 self.assertEqual(target['layer'][3]['transform'], [{'flatten': ['outliers']}])
                 self.assertEqual(target['layer'][3]['encoding'][axis]['field'], 'outliers')
                 for layer in target['layer']:
@@ -142,15 +144,16 @@ class StatisticalTests(unittest.TestCase):
                     self.assertNotIn('observations', json.dumps(target))
                     self.assertNotIn('row_id', json.dumps(target))
 
-    def test_percentage_totals_and_explicit_order_for_all_counts(self):
+    def test_percentage_totals_and_unmodified_table_order_for_all_counts(self):
         for count in range(2, 9):
             for family in FAMILIES['pie']:
                 cfg = sample_config('pie', 81, {'category_count': count, 'family': family, 'value_mode': 'percent'})
                 full, target, source = build_pair('pie', cfg)
                 self.assertEqual(sum(row['value'] for row in cfg['rows']), 100)
-                self.assertIsNone(target['encoding']['color']['sort'])
-                self.assertEqual(target['encoding']['order']['field'], 'order')
-                self.assertEqual(target['transform'], [{'window': [{'op': 'row_number', 'as': 'order'}]}])
+                self.assertEqual(target['data']['values'], cfg['rows'])
+                self.assertEqual(target['encoding'], {'theta': {'field': 'value', 'type': 'quantitative', 'title': full['encoding']['theta']['title']},
+                                                      'color': {'field': 'category', 'type': 'nominal'}})
+                self.assertNotIn('transform', target)
                 bad = copy.deepcopy(source['rows'])
                 bad[0]['value'] += 1
                 self.assertTrue(validate_statistics('pie', cfg, bad))
@@ -188,7 +191,7 @@ class StatisticalTests(unittest.TestCase):
     def test_compact_has_no_sampled_visual_settings_or_duplicate_order_arrays(self):
         forbidden = {'width', 'height', 'font', 'fontSize', 'fontWeight', 'background', 'grid', 'strokeWidth',
                      'size', 'thickness', 'radius', 'innerRadius', 'outerRadius', 'name', 'labelExpr', 'calculate',
-                     'range', 'scheme', 'config', 'usermeta'}
+                     'range', 'scheme', 'config', 'usermeta', 'filled', 'orient', 'scale'}
         def check(node):
             if isinstance(node, dict):
                 self.assertFalse(forbidden & node.keys())
@@ -224,19 +227,36 @@ class StatisticalTests(unittest.TestCase):
             self.assertEqual(project_rows(full), target['data']['values'])
             self.assertEqual(target['data']['values'], cfg['rows'])
 
-    def test_legacy_full_projection_cleans_precision_without_mutating_input(self):
-        cfg = sample_config('boxplot', 42)
+    def test_full_projection_preserves_exact_precision_outlier_order_and_input(self):
+        cfg = sample_config('boxplot', 42, {'outlier_mode': 'injected'})
         full, target, source = build_pair('boxplot', cfg)
         full['data']['values'][0].update(lower=.1, q1=.30000000000000004, median=.5, q3=.7,
-                                       upper=.9, outliers=[1.9999999999999998])
+                                       upper=.9, outliers=[1.9999999999999998, -1.0000000000000002])
         original = copy.deepcopy(full)
         target = normalize(full)
         self.assertEqual(full, original)
         self.assertEqual(project_rows(full), semantic_rows(target))
-        self.assertEqual(target['data']['values'][0]['q1'], .3)
-        self.assertEqual(target['data']['values'][0]['outliers'], [2])
+        expected = [{key: value for key, value in row.items() if key != 'row_id'} for row in original['data']['values']]
+        self.assertEqual(json.dumps(target['data']['values']), json.dumps(expected))
+        target['data']['values'][0]['outliers'].append(100)
+        self.assertEqual(full, original)
 
-    def test_real_shuffled_table_order_controls_arc_angles_and_box_positions(self):
+    def test_pie_projection_drops_order_helpers_without_rewriting_observations(self):
+        full, target, source = build_pair('pie', sample_config('pie', 81, {'category_count': 4}))
+        values = [.30000000000000004, 32.099999999999994, 1e-14, 2.0]
+        expected = []
+        for index, (row, value) in enumerate(zip(full['data']['values'], values)):
+            row.update(value=value, order=3-index)
+            expected.append(dict(category=row['category'], value=value))
+        original = copy.deepcopy(full)
+        target = normalize(full)
+        self.assertEqual(full, original)
+        self.assertEqual(json.dumps(target['data']['values']), json.dumps(expected))
+        self.assertEqual(project_rows(full), target['data']['values'])
+        self.assertNotIn('order', target['encoding'])
+        self.assertNotIn('transform', target)
+
+    def test_real_shuffled_table_preserves_full_order_and_compact_data_mappings(self):
         specs = []
         cases = []
         for kind, controls in (('pie', {'value_mode': 'percent'}),
@@ -257,13 +277,16 @@ class StatisticalTests(unittest.TestCase):
             self.assert_render_warnings(spec, result)
             if kind == 'pie':
                 arcs = [mark for mark in result['marks'] if mark['marktype'] == 'arc']
-                self.assertEqual([mark['datum']['category'] for mark in arcs], cfg['categories'])
-                previous = 0
-                for mark, row in zip(arcs, cfg['rows']):
-                    self.assertAlmostEqual(mark['datum']['value_start'], previous)
-                    previous += row['value']
-                    self.assertAlmostEqual(mark['datum']['value_end'], previous)
-                self.assertEqual(result['scales']['color']['domain'], cfg['categories'])
+                self.assertCountEqual([mark['datum']['category'] for mark in arcs], cfg['categories'])
+                values = {row['category']: row['value'] for row in cfg['rows']}
+                for mark in arcs:
+                    datum = mark['datum']
+                    self.assertAlmostEqual(datum['value_end'] - datum['value_start'], values[datum['category']])
+                if 'semantic' in spec.get('usermeta', {}):
+                    self.assertEqual([mark['datum']['category'] for mark in arcs], cfg['categories'])
+                    self.assertEqual(result['scales']['color']['domain'], cfg['categories'])
+                else:
+                    self.assertCountEqual(result['scales']['color']['domain'], cfg['categories'])
             else:
                 axis = 'y' if cfg['orientation'] == 'horizontal' else 'x'
                 self.assertEqual(result['scales'][axis]['domain'], cfg['categories'])
@@ -276,7 +299,7 @@ class StatisticalTests(unittest.TestCase):
             with self.subTest(kind=kind, controls=controls), self.assertRaises(ValueError):
                 normalize_controls(kind, controls)
 
-    def test_compact_geometry_rejects_changed_values_angles_and_legend_order(self):
+    def test_compact_geometry_checks_semantics_without_enforcing_pie_order(self):
         cfg = sample_config('pie', 31, {'category_count': 3, 'value_mode': 'percent'})
         full, target, source = build_pair('pie', cfg)
         geometry = {'marks': [{'mark_id': 'arcs', 'name': 'marks'}], 'elements': [],
@@ -288,6 +311,10 @@ class StatisticalTests(unittest.TestCase):
                                          'arc': {'startAngle': angle, 'endAngle': end, 'innerRadius': 0}})
             angle = end
         self.assertEqual(audit_geometry('pie', cfg, target, geometry), [])
+        reordered = copy.deepcopy(geometry)
+        reordered['texts'].reverse()
+        reordered['elements'].reverse()
+        self.assertEqual(audit_geometry('pie', cfg, target, reordered), [])
         for corruption in ('values', 'angles', 'legend'):
             damaged = copy.deepcopy(geometry)
             if corruption == 'values':
@@ -295,7 +322,7 @@ class StatisticalTests(unittest.TestCase):
             elif corruption == 'angles':
                 damaged['elements'][0]['arc']['endAngle'] += .1
             else:
-                damaged['texts'].reverse()
+                damaged['texts'][0]['text'] = 'Unknown category'
             self.assertTrue(audit_geometry('pie', cfg, target, damaged))
 
     def test_real_compilation_and_independent_compact_rendering(self):
