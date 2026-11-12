@@ -114,13 +114,13 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(target["encoding"]["order"], {"field": "stack_order", "type": "quantitative"})
         self.assertEqual([row["value"] for row in target["data"]["values"]], [75, 25, 80, 20, 60, 40])
 
-    def test_errors_are_explicit_two_layer_intervals(self):
+    def test_errors_are_native_errorbar_intervals(self):
         cfg = fixture("barh_1")
         cfg["xerr"] = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
         target = normalize(self.build("barh_1", cfg))
         self.assertEqual(len(target["layer"]), 2)
         self.assertEqual(target["layer"][0], {"mark": {"type": "bar"}})
-        self.assertEqual(target["layer"][1]["mark"], {"type": "rule"})
+        self.assertEqual(target["layer"][1]["mark"], {"type": "errorbar"})
         self.assertEqual(target["layer"][1]["encoding"], {"x": {"field": "lower", "type": "quantitative"}, "x2": {"field": "upper"}})
         self.assertEqual([(r["lower"], r["upper"]) for r in target["data"]["values"]], [(-0.3, 0.6), (-3.2, -2.5), (0.9, 1.4)])
 

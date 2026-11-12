@@ -152,3 +152,10 @@ python3 pipeline.py reproject --source runs/old_run --output runs/new_compact_v4
 Vega-Lite output uses object marks (`{"type":"bar"}`). Unit views follow `title → data → mark → encoding → other keys`; layered views follow `title → data → encoding → layer → other keys`, including nested layers. Absent keys are skipped. Assistant JSON in `train.jsonl` preserves this order. Historical string marks are accepted and normalized; observation values are preserved and hash serialization remains independent.
 
 Shared semantic channels live in the layered target's top-level `encoding`; layer encodings contain overrides such as error interval endpoints. Output syntax follows the [unified GT template](https://aicarrier.feishu.cn/docx/S5yKdnAPoobj5Zxdi2Ych9sLnSG).
+
+
+### Native error bars (2026-11-12)
+
+Compact-v4 error intervals use exactly `mark: {"type": "errorbar"}`, not hand-built `rule` layers. `lower` and `upper` remain absolute numeric endpoints, not error lengths; the bar value and observation order are unchanged. Vertical bars override `y`/`y2`, horizontal bars override `x`/`x2`. Grouped bars inherit the shared series color and category offset; stacked errors use `stack: null` on the interval axis so absolute endpoints are not accumulated again. Cap styling is a display default, not part of the semantic GT. Full presentation specs may still contain primitive rules for their original rendering.
+
+Projection version is `3.0.2`; sampler version and compact-v4 contract stay unchanged. Existing runs with older projection versions cannot be resumed into this revision. Use a fresh `generate` output directory for new production (or explicitly `reproject` historical full specs).

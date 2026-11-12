@@ -55,7 +55,7 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             dump(root / 'config.json', {})
-            for version in (None, '3.0.0'):
+            for version in (None, '3.0.0', '3.0.1'):
                 dump(root / 'run/run.json', {'generator_version': GENERATOR_VERSION,
                     'contract': CONTRACT, 'projection_version': version})
                 before = (root / 'run/run.json').read_bytes()

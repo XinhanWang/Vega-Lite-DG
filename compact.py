@@ -183,7 +183,7 @@ def normalize(full: dict) -> dict:
             interval = {"field": "lower", "type": "quantitative"}
             if kind == "barv_stack":
                 interval["stack"] = None
-            result["layer"] = [{"mark": "bar"}, {"mark": "rule", "encoding": {
+            result["layer"] = [{"mark": {"type": "bar"}}, {"mark": {"type": "errorbar"}, "encoding": {
                 value_axis: interval, value_axis + "2": {"field": "upper"}}}]
         else:
             result["mark"] = "bar"
@@ -322,7 +322,7 @@ def validate_canonical(spec: dict) -> None:
         interval = {"field": "lower", "type": "quantitative"}
         if {"stack_order", "start"} & fields:
             interval["stack"] = None
-        expected = [{"mark": "bar"}, {"mark": "rule", "encoding": {axis: interval, axis + "2": {"field": "upper"}}}]
+        expected = [{"mark": {"type": "bar"}}, {"mark": {"type": "errorbar"}, "encoding": {axis: interval, axis + "2": {"field": "upper"}}}]
         check(format_spec(spec)["layer"] == format_spec({"layer": expected})["layer"], "unsupported layer structure")
         used.update({"lower", "upper"})
         mark = "bar"
