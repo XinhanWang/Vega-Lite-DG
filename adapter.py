@@ -24,10 +24,10 @@ from spec_format import format_spec
 
 KINDS = (
     "barh_1", "barh_n", "barv_1", "barv_n", "barv_stack",
-    "line_1", "line_n", "scatter_1", "scatter_n",
+    "line_1", "line_n", "scatter_1", "scatter_n", "barh_stack",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "3.1.1"
+VERSION = "3.2.0"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -138,7 +138,7 @@ def _rows(kind: str, cfg: dict, names: list[str]) -> list[dict]:
         if not labels or len(matrix) != len(names) or any(len(v) != len(labels) for v in matrix):
             raise ValueError("Bar matrix, series names and labels have incompatible shapes")
         horizontal = kind.startswith("barh")
-        stacked = kind == "barv_stack"
+        stacked = kind in {"barv_stack", "barh_stack"}
         width = _number(cfg.get("bar_height" if horizontal else "bar_width", 0.7))
         if width <= 0:
             raise ValueError("Bar width/height must be positive")
@@ -166,7 +166,7 @@ def _rows(kind: str, cfg: dict, names: list[str]) -> list[dict]:
                            category_lower=center - width / 2, category_upper=center + width / 2,
                            value_lower=bottom, value_upper=top)
                 if horizontal:
-                    row.update(x=value, y=str(label), plot_x=value, plot_y=center,
+                    row.update(x=value, y=str(label), plot_x=(bottom + top) / 2 if stacked else value, plot_y=center,
                                plot_x0=bottom, plot_x1=top,
                                plot_y0=center - width / 2, plot_y1=center + width / 2)
                 else:
@@ -354,7 +354,7 @@ def _color(kind: str, cfg: dict, names: list[str]) -> dict:
     indices = cfg.get("_series_order", list(range(len(names))))
     ids = [f"s{i:03d}" for i in indices]
     ordered_names = [names[i] for i in indices]
-    show_legend = cfg.get("show_legend", kind.endswith("_n") or kind == "barv_stack")
+    show_legend = cfg.get("show_legend", kind.endswith("_n") or kind in {"barv_stack", "barh_stack"})
     legend: dict | None = None
     if show_legend:
         style = cfg.get("style", {})
@@ -651,7 +651,7 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
     rows = visual_rows(kind, rows, x_reverse=limits["x"][0] > limits["x"][1],
                        y_reverse=limits["y"][0] > limits["y"][1])
     cfg["_series_order"] = first_seen(rows, "series_index")
-    if not cfg.get("show_legend", kind.endswith("_n") or kind == "barv_stack"):
+    if not cfg.get("show_legend", kind.endswith("_n") or kind in {"barv_stack", "barh_stack"}):
         for visible_index, source_index in enumerate(cfg["_series_order"]):
             names[source_index] = f"Series {visible_index + 1}"
         for row in rows:
@@ -666,7 +666,7 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
         "kind": kind,
         "x_mode": cfg.get("x_mode", "categorical" if kind.startswith("barv") else "numeric"),
         "y_mode": "categorical" if kind.startswith("barh") else "numeric",
-        "grouping": "stacked" if kind == "barv_stack" else "grouped" if kind in {"barh_n", "barv_n"} else "series",
+        "grouping": "stacked" if kind in {"barv_stack", "barh_stack"} else "grouped" if kind in {"barh_n", "barv_n"} else "series",
         "stack_mode": cfg.get("stack_mode"),
         "category_order": first_seen(rows, "category_id") if "category_id" in rows[0] else [],
         "series_order": first_seen(rows, "series_id"),

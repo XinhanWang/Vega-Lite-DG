@@ -9,9 +9,17 @@
     "line_1": 50,
     "line_n": 50,
     "scatter_1": 50,
-    "scatter_n": 50
+    "scatter_n": 50,
+    "barh_stack": 50
   },
-  "controls": {},
+  "controls": {
+    "barv_stack": {
+      "stack_mode": "absolute"
+    },
+    "barh_stack": {
+      "stack_mode": "absolute"
+    }
+  },
   "workers": 4,
   "target_side": 1036,
   "notes": "VSR公开gen.sh默认每类50；运行前先smoke，再使用独立输出目录。"

@@ -96,7 +96,7 @@ class StyleDiversityTests(unittest.TestCase):
         from workflow.samples import obtain_sample
         from workflow.io import dump,read,digest
         from workflow.config import CONTRACT
-        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.2')
+        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.3')
         old=json.loads((ROOT/'tests/fixtures/native-1.0-barv-1.json').read_text())
         old['generator_version']='vega-lite-native/1.0'
         with tempfile.TemporaryDirectory() as directory:

@@ -20,7 +20,7 @@ def _axis_values(kind, cfg, axis):
         if axis == category_axis:
             return np.arange(len(cfg["labels"])), True
         values = np.asarray(cfg.get("values", cfg.get("matrix")), dtype=float)
-        if kind == "barv_stack":
+        if kind in {"barv_stack", "barh_stack"}:
             values = values.sum(axis=0)
         return np.append(values, 0), False
     if kind.startswith("line"):
@@ -96,6 +96,21 @@ def _axes(rng, kind, cfg, controls):
     return axes
 
 
+def sample_horizontal_stack(seed, controls=None):
+    """Sample ordinary horizontal stacks by transposing the vertical stack rules."""
+    c = dict(controls or {})
+    c['stack_mode'] = 'absolute'
+    cfg, rng = sample_parameters('barv_stack', seed, c)
+    # The matrix and cumulative left endpoints remain exact source numbers.
+    cfg['bar_height'] = cfg.pop('bar_width')
+    cfg['xlims'] = cfg.pop('ylims')
+    cfg['x_title'], cfg['y_title'] = cfg['y_title'], cfg['x_title']
+    cfg['y_rotation'] = 0
+    cfg['x_rotation'] = 0
+    cfg.pop('x_ha', None)
+    return cfg, rng
+
+
 def sample_config(kind, seed, controls=None):
     """Run the complete VSR parameter rules, then apply native contract adapters.
 
@@ -105,7 +120,7 @@ def sample_config(kind, seed, controls=None):
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
     c = normalize_controls(kind, controls)
-    cfg, p = sample_parameters(kind, seed, c)
+    cfg, p = sample_horizontal_stack(seed, c) if kind == "barh_stack" else sample_parameters(kind, seed, c)
     cfg = clean(cfg)
     cfg['generator_version'] = GENERATOR_VERSION
     cfg['kind'] = kind
@@ -114,7 +129,7 @@ def sample_config(kind, seed, controls=None):
     cfg['n_series'] = series
     if not kind.endswith('_1') and len(cfg.get('series_names', [])) != series:
         raise ValueError('Upstream sampler returned incompatible series names')
-    cfg['show_legend'] = c.get('show_legend', cfg.get('show_legend', kind.endswith('_n') or kind == 'barv_stack'))
+    cfg['show_legend'] = c.get('show_legend', cfg.get('show_legend', kind.endswith('_n') or kind in {'barv_stack', 'barh_stack'}))
     if not cfg['show_legend']:
         cfg['series_names'] = [f'Series {i+1}' for i in range(series)]
         cfg['series_name'] = cfg['series_names'][0]
@@ -153,7 +168,7 @@ def sample_config(kind, seed, controls=None):
             else: cfg['hatches'] = [c['hatch']]*series
         # Exact-percent is an explicit native control; upstream's natural
         # percent stacks retain their original independently rounded segments.
-        if kind == 'barv_stack' and c.get('stack_mode') == 'percent':
+        if kind in {'barv_stack', 'barh_stack'} and c.get('stack_mode') == 'percent':
             matrix = np.asarray(cfg['matrix'],dtype=float)
             for i in range(count):
                 matrix[int(np.argmax(matrix[:,i])),i] += 100-float(matrix[:,i].sum())

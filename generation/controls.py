@@ -1,14 +1,14 @@
 """Supported chart families and explicit generation controls."""
 from __future__ import annotations
 
-KINDS = ("barh_1", "barh_n", "barv_1", "barv_n", "barv_stack", "line_1", "line_n", "scatter_1", "scatter_n")
+KINDS = ("barh_1", "barh_n", "barv_1", "barv_n", "barv_stack", "line_1", "line_n", "scatter_1", "scatter_n", "barh_stack")
 BAR_SINGLE_FAMILIES = ("balanced", "heavy_tail", "ordered", "signed_mix", "sparse", "log_spread", "clustered", "alternating", "bimodal", "staircase", "plateau")
 BAR_MULTI_FAMILIES = ("parallel", "crossing", "dominant", "mixed_scale", "composition", "sparse", "signed", "alternating", "bimodal", "staircase", "plateau")
 STACK_FAMILIES = ("balanced", "dominant", "sparse", "layered", "front_loaded", "back_loaded", "switchback", "fragmented")
 LINE_FAMILIES = ("parallel_trend", "crossing", "oscillating", "piecewise", "random_walk", "spike_event", "decay", "seasonal", "mean_reverting", "logistic", "sawtooth")
 SCATTER_FAMILIES = ("clustered", "multi_cluster", "correlated", "curved", "ring", "heteroskedastic", "fan", "stripe", "stepwise", "bimodal", "outliers", "spiral", "crescent", "grid", "bridge", "hourglass")
 PROFILES = ("chromatic", "publication_clean", "colorful_analytic", "presentation_emphasis", "dashboard_dense", "monochrome_minimal", "editorial", "compact_report", "dark_contrast", "dense_scatter_family")
-FAMILIES = {kind: (STACK_FAMILIES if kind == "barv_stack" else BAR_SINGLE_FAMILIES if kind.startswith("bar") and kind.endswith("_1") else BAR_MULTI_FAMILIES if kind.startswith("bar") else LINE_FAMILIES if kind.startswith("line") else SCATTER_FAMILIES) for kind in KINDS}
+FAMILIES = {kind: (STACK_FAMILIES if kind in {"barv_stack", "barh_stack"} else BAR_SINGLE_FAMILIES if kind.startswith("bar") and kind.endswith("_1") else BAR_MULTI_FAMILIES if kind.startswith("bar") else LINE_FAMILIES if kind.startswith("line") else SCATTER_FAMILIES) for kind in KINDS}
 HATCHES = (None, "/", "\\", "|", "-", "+", "x", "o", "O", ".", "*")
 
 
@@ -18,6 +18,10 @@ def normalize_controls(kind, controls):
     if controls is not None and not isinstance(controls, dict):
         raise ValueError("controls must be an object")
     c = dict(controls or {})
+    if kind in {"barv_stack", "barh_stack"}:
+        c.setdefault("stack_mode", "absolute")
+        if kind == "barh_stack" and c["stack_mode"] != "absolute":
+            raise ValueError("barh_stack supports absolute stacks only")
     for old, new in {"n_points": "point_count", "n_categories": "category_count", "n_series": "series_count", "style_profile": "profile"}.items():
         if old in c:
             if new in c and c[old] != c[new]:
@@ -39,7 +43,7 @@ def normalize_controls(kind, controls):
     if c.get("max_attempts", 1) > 10000:
         raise ValueError("max_attempts must be in [1, 10000]")
     if "series_count" in c:
-        lo, hi = (1, 1) if kind.endswith("_1") else (2, 6 if kind == "barv_stack" else 5)
+        lo, hi = (1, 1) if kind.endswith("_1") else (2, 6 if kind in {"barv_stack", "barh_stack"} else 5)
         if not lo <= c["series_count"] <= hi:
             raise ValueError(f"{kind} requires series_count in [{lo}, {hi}]")
     if kind == "scatter_n" and "point_count" in c:
@@ -48,11 +52,11 @@ def normalize_controls(kind, controls):
             raise ValueError(f"scatter_n point_count is the total across series and must be in [{minimum}, 48]")
     if "x_mode" in c and (not kind.startswith("line") or c["x_mode"] not in {"numeric", "categorical", "temporal"}):
         raise ValueError("x_mode is numeric/categorical/temporal and applies only to line templates")
-    if "stack_mode" in c and (kind != "barv_stack" or c["stack_mode"] not in {"absolute", "percent"}):
+    if "stack_mode" in c and (kind not in {"barv_stack", "barh_stack"} or c["stack_mode"] not in {"absolute", "percent"}):
         raise ValueError("stack_mode is absolute/percent and applies only to barv_stack")
     if "profile" in c and (c["profile"] not in PROFILES or (c["profile"] == "dense_scatter_family" and not kind.startswith("scatter"))):
         raise ValueError(f"Invalid profile for {kind}")
-    if "show_error" in c and (not kind.startswith("bar") or kind == "barv_stack" or not isinstance(c["show_error"], bool)):
+    if "show_error" in c and (not kind.startswith("bar") or kind in {"barv_stack", "barh_stack"} or not isinstance(c["show_error"], bool)):
         raise ValueError("show_error is a boolean for non-stacked bars")
     if "hatch" in c and (not kind.startswith("bar") or c["hatch"] not in HATCHES):
         raise ValueError("hatch must be a supported bar pattern")

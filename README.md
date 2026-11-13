@@ -128,7 +128,7 @@ PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" VSR_F
 
 当前生成器版本为 `vega-lite-native/1.2`。默认生产使用 `generation/vsr_samplers/` 的九类原版纯参数函数和 `generation/vsr_text.py`：原 family 权重、数量分段、图类尺度分布、族内全部公式与分支、排序、多线共享基曲线、多散点局部族混合、随机舍入、标题模板、轴标题缺省、系列名及完整词表均保留。数据和标题的默认逻辑不再使用1.0/1.1的均匀族采样和12指标固定标题模板。旧版本的验证记录保留为历史证据。
 
-每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认自然percent样本保留原版随机舍入后的值。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
+每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认只生成 absolute 普通堆叠；旧配置显式 percent 仅保留历史兼容。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
 
 同版本恢复使用 `generate --resume`；1.1及更早的保存配置使用 `reproject` 到新目录，避免混采。修改前清单见 `docs/vsr-alignment-baseline-20261111.md`，数值和文本移植说明见 `docs/vsr-numeric-restoration-20261111.md`、`docs/vsr-text-restoration-20261111.md`，实际对照与交付证据见 `docs/vsr-alignment-delivery-20261111.md`。
 
@@ -168,3 +168,7 @@ Projection version is `3.0.2`; sampler version and compact-v4 contract stay unch
 ## Encoding channel order
 
 Serialize every view and layer with position channels before visual channels: `x → y → xOffset → yOffset → x2 → y2 → theta → theta2 → radius → radius2 → longitude → longitude2 → latitude → latitude2 → color → other channels`. Omit absent channels; preserve the relative order of other channels. For grouped bars this gives `x → y → xOffset/yOffset → color`. Only encoding object key order changes; channel definitions, observations and rendering semantics are preserved.
+
+## Ordinary vertical and horizontal stacks (2026-11-13)
+
+`barv_stack` writes each category bottom-to-top; `barh_stack` writes categories top-to-bottom and segments left-to-right. Segment amounts remain scientific values, with cumulative boundaries preserved by `stack_order` or explicit `start`/`end`. The annotation UI needs N+1 clicks for N segments and shares boundaries through undo, reload, recalibration and edits. New production uses absolute stacks only. See [stack annotation contract](docs/stack-annotation-contract.md).

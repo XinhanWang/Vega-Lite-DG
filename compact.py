@@ -12,7 +12,7 @@ from spec_format import format_spec
 from identity import IDENTITIES, ROW_FIELDS, migrate_spec, order_row
 
 
-KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack",
+KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack", "barh_stack",
          "line_1", "line_n", "scatter_1", "scatter_n"}
 
 
@@ -77,7 +77,7 @@ def _context(full: dict, version: int = 4) -> dict:
             "include_series": include_series, "repeated_series": repeated_series,
             "visible_legend": visible_legend,
             "path_order": kind.startswith("line") and needs_path_order(rows),
-            "stack_endpoints": kind == "barv_stack" and needs_stack_endpoints(rows),
+            "stack_endpoints": kind in {"barv_stack", "barh_stack"} and needs_stack_endpoints(rows),
             "category_field": category_field, "category_keys": category_keys,
             "categories": categories, "category_index": {key: i for i, key in enumerate(category_keys)},
             "repeated_category": repeated_category}
@@ -104,7 +104,7 @@ def _data(context: dict, canonical: bool = True) -> list[dict]:
             result.update(lower=row["error_lower"], upper=row["error_upper"])
         if context["path_order"]:
             result["path_order"] = row["point_index"]
-        if context["kind"] == "barv_stack":
+        if context["kind"] in {"barv_stack", "barh_stack"}:
             if context["stack_endpoints"]:
                 result.update(start=row["value_lower"], end=row["value_upper"])
             else:
@@ -172,7 +172,7 @@ def normalize(full: dict) -> dict:
             encoding["color"] = _series_encoding(context)
         if kind in {"barh_n", "barv_n"}:
             encoding[category_axis + "Offset"] = _series_encoding(context)
-        if kind == "barv_stack":
+        if kind in {"barv_stack", "barh_stack"}:
             if context["stack_endpoints"]:
                 # Arbitrary baselines and crossing signed stacks cannot be
                 # recreated by Vega's zero-based diverging stack transform.
@@ -183,7 +183,7 @@ def normalize(full: dict) -> dict:
                 encoding["order"] = {"field": "stack_order", "type": "quantitative"}
         if any("lower" in row for row in result["data"]["values"]):
             interval = {"field": "lower", "type": "quantitative"}
-            if kind == "barv_stack":
+            if kind in {"barv_stack", "barh_stack"}:
                 interval["stack"] = None
             result["layer"] = [{"mark": {"type": "bar"}}, {"mark": {"type": "errorbar"}, "encoding": {
                 value_axis: interval, value_axis + "2": {"field": "upper"}}}]
@@ -337,7 +337,7 @@ def validate_canonical(spec: dict) -> None:
         check("lower" not in fields, "errors need explicit layers")
     check((mark == "bar") == bar, "mark/data mismatch")
     if bar:
-        category_axis = "y" if enc["x"]["field"] == "value" else "x"
+        category_axis = "y" if enc["x"]["field"] in {"value", "end"} else "x"
         value_axis = "x" if category_axis == "y" else "y"
         check(enc[category_axis]["field"] == ("category_id" if "category_id" in fields else "category") and enc[category_axis]["type"] == "nominal", "bar category encoding")
         check(enc[value_axis]["field"] == ("end" if "start" in fields else "value") and enc[value_axis]["type"] == "quantitative", "bar value encoding")
@@ -351,9 +351,9 @@ def validate_canonical(spec: dict) -> None:
     if "path_order" in fields:
         check(mark == "line" and enc.get("order") == {"field": "path_order", "type": "quantitative"}, "path ordering required")
     if "stack_order" in fields:
-        check(bar and enc.get("order") == {"field": "stack_order", "type": "quantitative"} and enc["y"].get("stack") == "zero", "stack ordering required")
+        check(bar and enc.get("order") == {"field": "stack_order", "type": "quantitative"} and enc[value_axis].get("stack") == "zero", "stack ordering required")
     if "start" in fields:
-        check(bar and enc["y"].get("field") == "end" and enc["y"].get("stack", "missing") is None and enc.get("y2") == {"field": "start"}, "stack endpoints required")
+        check(bar and enc[value_axis].get("field") == "end" and enc[value_axis].get("stack", "missing") is None and enc.get(value_axis + "2") == {"field": "start"}, "stack endpoints required")
         used.add("value")
     if "order" in enc:
         check(enc["order"] == {"field": "path_order" if "path_order" in fields else "stack_order", "type": "quantitative"} and bool({"path_order", "stack_order"} & fields), "unsupported order")

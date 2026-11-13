@@ -35,7 +35,7 @@ def _bind(module, namespace):
 
 def parameter_namespace(kind, seed, controls=None):
     controls = controls or {}
-    module = importlib.import_module('.vsr_samplers.' + kind, __package__)
+    module = importlib.import_module('.vsr_samplers.' + ('barv_stack' if kind == 'barh_stack' else kind), __package__)
     namespace = {**vars(vsr_text), **vars(module)}
     p = random.Random(seed)
     namespace.update(random=p, np=NumpySource(seed), math=math)
@@ -65,7 +65,7 @@ def parameter_namespace(kind, seed, controls=None):
             return controls['family']
         if 'stack_mode' in controls and set(items) == {'absolute', 'percent'}:
             return controls['stack_mode']
-        if kind == 'barv_stack' and 'series_count' in controls and list(items) == [2,3,4,5,6]:
+        if kind in {'barv_stack', 'barh_stack'} and 'series_count' in controls and list(items) == [2,3,4,5,6]:
             return controls['series_count']
         return drawn
     namespace['choose_weighted'] = weighted

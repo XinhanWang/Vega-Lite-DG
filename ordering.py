@@ -2,7 +2,7 @@
 
 Stable source IDs and point indices remain untouched. Only the table sequence
 changes: horizontal categories run top-to-bottom; other categories and numeric
-positions run left-to-right. Stack/scatter ties run top-to-bottom; line ties
+positions run left-to-right. Stacks run bottom-to-top (vertical) or left-to-right (horizontal); scatter ties run top-to-bottom; line ties
 retain the stable series order, which also determines the legend.
 """
 from __future__ import annotations
@@ -17,10 +17,11 @@ def visual_rows(kind: str, rows: list[dict], *, x_reverse: bool = False,
     def key(row: dict) -> tuple:
         stable = (row.get("series_index", 0), row.get("point_index", 0), row.get("row_index", 0))
         if kind.startswith("barh"):
-            return (y_direction * row["category_position"],
-                    y_direction * row["plot_category"], *stable)
+            inner = (x_direction * (row["value_lower"] + row["value_upper"]) / 2
+                     if kind == "barh_stack" else y_direction * row["plot_category"])
+            return (y_direction * row["category_position"], inner, *stable)
         if kind.startswith("barv"):
-            inner = (y_direction * (row["value_lower"] + row["value_upper"]) / 2
+            inner = (-y_direction * (row["value_lower"] + row["value_upper"]) / 2
                      if kind == "barv_stack" else x_direction * row["plot_category"])
             return (x_direction * row["category_position"], inner, *stable)
         if kind.startswith("line"):

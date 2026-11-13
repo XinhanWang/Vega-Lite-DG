@@ -44,7 +44,7 @@ class CompactTests(unittest.TestCase):
                 cfg["series_names"] = [f"Series {i}" for i in range(len(cfg["series_names"]))]
             full = self.build(kind, cfg)
             target = normalize(full)
-            allowed_count = 5 if kind == "barv_stack" else 3
+            allowed_count = 5 if kind in {"barv_stack", "barh_stack"} else 3
             self.assertTrue(all(3 <= len(row) <= allowed_count for row in target["data"]["values"]))
             self.assertNotIn("layer", target)
             self.assertNotIn("labelExpr", json.dumps(target))
@@ -112,7 +112,7 @@ class CompactTests(unittest.TestCase):
         target = normalize(self.build("barv_stack", cfg))
         self.assertEqual(target["encoding"]["y"]["stack"], "zero")
         self.assertEqual(target["encoding"]["order"], {"field": "stack_order", "type": "quantitative"})
-        self.assertEqual([row["value"] for row in target["data"]["values"]], [75, 25, 80, 20, 60, 40])
+        self.assertEqual([row["value"] for row in target["data"]["values"]], [25, 75, 20, 80, 40, 60])
 
     def test_errors_are_native_errorbar_intervals(self):
         cfg = fixture("barh_1")

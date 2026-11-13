@@ -130,7 +130,7 @@ class CompactSemanticV4Tests(unittest.TestCase):
     def test_stack_errors_and_arbitrary_endpoints(self):
         ordinary = normalize(full_for('barv_stack', matrix=[[25, 20, 40], [75, 80, 60]], bottoms=[[0, 0, 0], [25, 20, 40]], stack_mode='percent'))
         self.assertEqual(ordinary['encoding']['y']['stack'], 'zero')
-        self.assertEqual([r['value'] for r in ordinary['data']['values']], [75, 25, 80, 20, 60, 40])
+        self.assertEqual([r['value'] for r in ordinary['data']['values']], [25, 75, 20, 80, 40, 60])
         self.assertEqual(ordinary['encoding']['order']['field'], 'stack_order')
         full = full_for('barv_stack', bottoms=[[2, 7, 0], [11, -5, 3]])
         arbitrary = normalize(full)

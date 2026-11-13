@@ -31,7 +31,9 @@ class VSRRuntimeTests(unittest.TestCase):
 
     def test_default_core_preserves_raw_data_and_text(self):
         for index,kind in enumerate(KINDS):
-            raw,_=sample_parameters(kind,772+index)
+            from generation.controls import normalize_controls
+            from generation.core import sample_horizontal_stack
+            raw,_=(sample_horizontal_stack(772+index) if kind == 'barh_stack' else sample_parameters(kind,772+index,normalize_controls(kind,None)))
             cfg=sample_config(kind,772+index)
             for key in ('title','x_title','y_title','family','labels','values','matrix','x_values','x_labels','x','y','counts','starts','series_families','stack_mode','bottoms'):
                 if key in raw:
@@ -41,7 +43,7 @@ class VSRRuntimeTests(unittest.TestCase):
             self.assertEqual(full['usermeta']['semantic_labels'].get('y_title'),cfg['y_title'])
 
     def test_one_point_and_explicit_counts_do_not_reduce_defaults(self):
-        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.2')
+        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.3')
         for kind in ('line_1','line_n'):
             cfg=sample_config(kind,7,{'point_count':1})
             self.assertEqual(len(cfg['x_values']),1)
