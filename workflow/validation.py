@@ -86,6 +86,10 @@ def validate(out):
             source = read(sample / 'source.json')
             if full['data']['values'] != source['rows']:
                 errors.append('Vega-Lite observation table differs from source rows')
+            statistical = row['kind'] in {'pie', 'boxplot'}
+            if statistical:
+                from .statistical_validation import validate_statistics, audit_geometry
+                errors.extend(validate_statistics(row['kind'], read(sample / 'config.json'), source['rows']))
             text_audit = audit_text(full, (sample / 'chart.svg').read_text(encoding='utf-8'))
             dump(sample / 'text-audit.json', text_audit)
             errors.extend('full text: ' + message for message in text_audit['errors'])
@@ -126,7 +130,9 @@ def validate(out):
                         errors.append(f'{variant}: nonfinite geometry')
                 primary_type = 'rect' if row['kind'].startswith('bar') else 'line' if row['kind'].startswith('line') else 'symbol'
                 primary = [e for e in observations if e['mark_type'] == primary_type and (variant == 'compact' or not row['kind'].startswith('bar') or mark_names[e['mark_id']].startswith('bars_'))]
-                if variant == 'full':
+                if statistical:
+                    errors.extend(variant + ': ' + message for message in audit_geometry(row['kind'], read(sample / 'config.json'), full if variant == 'full' else compact, geometry))
+                elif variant == 'full':
                     if collections.Counter(e['datum']['row_id'] for e in primary) != collections.Counter(rows_by_id.keys()):
                         errors.append('full: expected one primary mark/vertex per source row')
                     errors.extend('full: ' + message for message in audit_visible_order(row['kind'], source['rows'], primary))

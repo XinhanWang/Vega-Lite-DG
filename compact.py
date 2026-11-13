@@ -113,6 +113,11 @@ def _data(context: dict, canonical: bool = True) -> list[dict]:
     return output
 
 
+def unit_format(value, format_type="number") -> bool:
+    """D3 currency and percent formats carry units, unlike precision-only formats."""
+    return format_type == "number" and isinstance(value, str) and ("$" in value or value.endswith(("%", "p")))
+
+
 def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> dict:
     original = context["encoding"].get(channel, {})
     result = {"field": field, "type": data_type}
@@ -122,6 +127,9 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
     if data_type in {"nominal", "ordinal"}:
         result["sort"] = None
     else:
+        axis = original.get("axis") or {}
+        if unit_format(axis.get("format"), axis.get("formatType", "number")):
+            result["axis"] = {"format": axis["format"]}
         scale = original.get("scale") or {}
         semantic_scale = {k: scale[k] for k in ("type", "base", "exponent", "constant")
                           if k in scale and (k != "type" or scale[k] != "linear")}
@@ -150,6 +158,11 @@ def _needs_input_order(context: dict) -> bool:
 
 def normalize(full: dict) -> dict:
     """Create minimal training GT; applying it again is idempotent."""
+    if (_semantic(full) or {}).get("kind") in {"pie", "boxplot"}:
+        from statistical import compact_spec
+        result = compact_spec(full)
+        validate_target(result)
+        return result
     if _semantic(full) is None:
         full = migrate_spec(full)
         validate_target(full)
@@ -211,6 +224,9 @@ def project_rows(full: dict, version: int = 4) -> list[dict]:
         raise ValueError("Unsupported compact version")
     if _semantic(full) is None:
         return semantic_rows(full, version=version)
+    if _semantic(full)["kind"] in {"pie", "boxplot"}:
+        from statistical import project_rows as project_statistical_rows
+        return project_statistical_rows(full)
     return _data(_context(full, version=version), canonical=True)
 
 
@@ -241,6 +257,10 @@ def semantic_rows(spec: dict, version: int = 4) -> list[dict]:
 
 def validate_canonical(spec: dict) -> None:
     """Validate the bounded v4 grammar. Unsupported/legacy input raises ValueError."""
+    from statistical import target_kind, validate_compact
+    if target_kind(spec):
+        validate_compact(spec)
+        return
     def check(ok, message):
         if not ok:
             raise ValueError("Unsupported/noncanonical compact-v4: " + message)
@@ -290,7 +310,7 @@ def validate_canonical(spec: dict) -> None:
     used = set()
     for channel, d in enc.items():
         check(isinstance(d, dict), "channel object required")
-        check(set(d) <= {"field", "type", "title", "sort", "scale", "stack"}, "display/unsupported encoding property")
+        check(set(d) <= {"field", "type", "title", "sort", "scale", "stack", "axis"}, "display/unsupported encoding property")
         check(isinstance(d.get("field"), str) and d["field"] in fields, "field missing from data")
         f = d["field"]
         check(f + "_id" not in fields, "encoding must use identity field")
@@ -305,6 +325,11 @@ def validate_canonical(spec: dict) -> None:
             check("sort" not in d, "unnecessary quantitative sort")
         if "title" in d:
             check(valid_title(d["title"]), "invalid variable title")
+        if "axis" in d:
+            axis = d["axis"]
+            check(channel in {"x", "y"} and d.get("type") == "quantitative"
+                  and isinstance(axis, dict) and set(axis) == {"format"}
+                  and unit_format(axis["format"]), "only unit-bearing numeric axis formats")
         if "scale" in d:
             scale = d["scale"]
             check(channel in {"x", "y"} and isinstance(scale, dict), "invalid scale")

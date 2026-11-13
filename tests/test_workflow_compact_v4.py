@@ -35,4 +35,4 @@ class CompactArtifactTests(unittest.TestCase):
     def test_contract_version_is_separate_from_sampling_version(self):
         from generation import GENERATOR_VERSION
         self.assertEqual(CONTRACT,'compact-v4')
-        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.2')
+        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.3')

@@ -46,6 +46,8 @@ class StyleDiversityTests(unittest.TestCase):
     def test_original_template_ticks_and_mark_density(self):
         for seed in range(60):
             for kind in KINDS:
+                if kind in {'pie', 'boxplot'}:
+                    continue
                 cfg = sample_config(kind,seed)
                 ticks = cfg['_render_axes']['tick_styles']
                 if kind.startswith('scatter'):
@@ -96,7 +98,7 @@ class StyleDiversityTests(unittest.TestCase):
         from workflow.samples import obtain_sample
         from workflow.io import dump,read,digest
         from workflow.config import CONTRACT
-        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.2')
+        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.3')
         old=json.loads((ROOT/'tests/fixtures/native-1.0-barv-1.json').read_text())
         old['generator_version']='vega-lite-native/1.0'
         with tempfile.TemporaryDirectory() as directory:
