@@ -42,11 +42,11 @@ def main():
         (out / filename).write_text(body, encoding='utf-8')
         chunks.append({'kind': kind, 'id': row['id'], 'file': filename, 'sha256': hashlib.sha256(body.encode()).hexdigest(), 'image_sha256': hashlib.sha256(data).hexdigest(), 'codes': codes})
         cards.append(f'<section id="{kind}"><h2>{label}</h2><img src="{image}"><details><summary>绘图 Vega-Lite JSON</summary><pre>{html.escape(codes[0])}</pre></details><details><summary>精简 Vega-Lite JSON</summary><pre>{html.escape(codes[1])}</pre></details></section>')
-    manifest = {'destination_url': a.destination, 'section': '合成示例', 'chunks': chunks, 'expected_images': 9, 'expected_codes': 18}
+    manifest = {'destination_url': a.destination, 'section': '合成示例', 'chunks': chunks, 'expected_images': len(chunks), 'expected_codes': 2 * len(chunks)}
     (out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     document = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>原生 Vega-Lite · 可见顺序 GT</title><style>body{font:16px system-ui;max-width:1100px;margin:30px auto;padding:20px;background:#f5f7fb;color:#172238}section{background:white;padding:24px;margin:24px 0;border-radius:12px}img{max-width:100%;max-height:750px}pre{overflow:auto;font:12px monospace;max-height:600px;background:#eef2f7;padding:16px}summary{padding:12px;cursor:pointer}nav a{margin:0 12px 8px 0;display:inline-block}</style><h1>原生 Vega-Lite · 可见顺序 GT</h1>' + intro + '<nav>' + ''.join(f'<a href="#{k}">{v}</a>' for k, v in LABELS.items()) + '</nav>' + ''.join(cards) + '</html>'
     (out / 'gallery.html').write_text(document, encoding='utf-8')
-    print(json.dumps({'examples': len(chunks), 'images': 9, 'codes': 18, 'gallery': str(out / 'gallery.html')}))
+    print(json.dumps({'examples': len(chunks), 'images': len(chunks), 'codes': 2 * len(chunks), 'gallery': str(out / 'gallery.html')}))
 
 
 if __name__ == '__main__':
