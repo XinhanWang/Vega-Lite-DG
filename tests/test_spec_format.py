@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
 from adapter import KINDS, build_geometry_pair
 from compact import normalize, project_rows, semantic_rows
-from spec_format import format_spec
+from spec_format import ENCODING_ORDER, format_spec
 from test_adapter import fixture
 from workflow.io import canonical, dump, jsonl, read, serialize
 
@@ -21,6 +21,11 @@ class SpecFormatTests(unittest.TestCase):
         priority = ['title', 'data', 'encoding', 'layer'] if 'layer' in spec else ['title', 'data', 'mark', 'encoding']
         prefix = [k for k in priority if k in spec]
         self.assertEqual(list(spec)[:len(prefix)], prefix)
+        if 'encoding' in spec:
+            enc = spec['encoding']
+            expected = [k for k in ENCODING_ORDER if k in enc]
+            expected += [k for k in enc if k not in expected]
+            self.assertEqual(list(enc), expected)
         if 'mark' in spec:
             self.assertIsInstance(spec['mark'], dict)
             self.assertIn('type', spec['mark'])
@@ -74,6 +79,18 @@ class SpecFormatTests(unittest.TestCase):
         self.assertEqual(original, before)
         self.assertEqual(serialize(format_spec(result)), serialize(result))
         self.assertEqual(canonical({'b': 2, 'a': 1}), canonical({'a': 1, 'b': 2}))
+
+    def test_position_channels_precede_visual_channels_in_nested_views(self):
+        enc = {k: {'field': k} for k in ['tooltip', 'color', 'yOffset', 'x2', 'y', 'xOffset', 'x', 'size', 'theta']}
+        original = {'encoding': enc, 'layer': [{'mark': 'bar', 'encoding': enc}],
+                    'data': {'values': [{'encoding': {'color': 1, 'x': 2}}]}}
+        before = copy.deepcopy(original)
+        result = format_spec(original)
+        self.assert_views(result)
+        self.assertEqual(list(result['encoding']), ['x', 'y', 'xOffset', 'yOffset', 'x2', 'theta', 'color', 'tooltip', 'size'])
+        self.assertEqual(result['data'], original['data'])
+        self.assertEqual(original, before)
+        self.assertEqual(serialize(format_spec(result)), serialize(result))
 
     def test_historical_string_marks_normalize_without_mutation(self):
         for kind in KINDS:

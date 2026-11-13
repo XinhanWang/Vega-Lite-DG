@@ -163,3 +163,8 @@ Projection version is `3.0.2`; sampler version and compact-v4 contract stay unch
 ## 2026-11-12 GT 身份字段统一
 
 投影版本 `3.1.0`。`category_id=C1…`、`x_id=X1…`、`series_id=S1…` 按实际对象首次可见顺序分配；只在对应维度重名时导出。显示原文不变，数值/顺序字段先于 `series`，`series_id` 最后。旧 `*_instance` 在导入时迁移；训练 GT 不保存 `labelExpr`。新版本不能续写旧投影运行目录，请生成新目录。详见 [统一契约](docs/gt-identity-contract.md)。
+
+
+## Encoding channel order
+
+Serialize every view and layer with position channels before visual channels: `x → y → xOffset → yOffset → x2 → y2 → theta → theta2 → radius → radius2 → longitude → longitude2 → latitude → latitude2 → color → other channels`. Omit absent channels; preserve the relative order of other channels. For grouped bars this gives `x → y → xOffset/yOffset → color`. Only encoding object key order changes; channel definitions, observations and rendering semantics are preserved.

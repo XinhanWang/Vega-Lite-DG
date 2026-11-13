@@ -2,6 +2,12 @@
 import copy
 
 
+# Position channels precede visual channels; other channels retain their order.
+ENCODING_ORDER = ("x", "y", "xOffset", "yOffset", "x2", "y2",
+                  "theta", "theta2", "radius", "radius2", "longitude",
+                  "longitude2", "latitude", "latitude2", "color")
+
+
 def format_spec(spec: dict) -> dict:
     """Object marks and ordered view keys; layered views start title/data/encoding/layer.
 
@@ -11,6 +17,10 @@ def format_spec(spec: dict) -> dict:
     result = copy.deepcopy(spec)
 
     def view(node):
+        if isinstance(node.get("encoding"), dict):
+            enc = node["encoding"]
+            keys = [key for key in ENCODING_ORDER if key in enc]
+            node["encoding"] = {key: enc[key] for key in keys + [k for k in enc if k not in keys]}
         if isinstance(node.get('mark'), str):
             node['mark'] = {'type': node['mark']}
         for key in ('layer', 'concat', 'hconcat', 'vconcat'):
