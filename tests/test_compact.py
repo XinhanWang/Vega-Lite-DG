@@ -70,12 +70,12 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(target["data"]["values"][0], target["data"]["values"][1])
         self.assertEqual(semantic_rows(target), project_rows(full))
 
-    def test_numeric_line_reads_left_to_right_without_changing_connections(self):
+    def test_numeric_line_keeps_path_without_changing_connections(self):
         for xs in ([3, 1, 2], [3, 2, 1], [1, 1, 2]):
             cfg = fixture("line_n")
             cfg["x_values"] = xs
             target = normalize(self.build("line_n", cfg))
-            self.assertEqual([row["x"] for row in target["data"]["values"]], sorted(x for x in xs for _ in range(2)))
+            self.assertEqual([row["x"] for row in target["data"]["values"]], [x for x in xs for _ in range(2)])
             for series in range(2):
                 rows = [r for r in target["data"]["values"] if r["series_id"] == f"S{series + 1}"]
                 order = target["encoding"].get("order", {}).get("field")

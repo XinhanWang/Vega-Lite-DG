@@ -27,7 +27,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n", "barh_stack",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 

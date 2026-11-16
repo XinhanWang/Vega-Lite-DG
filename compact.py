@@ -67,7 +67,8 @@ def _context(full: dict, version: int = 4) -> dict:
     _, repeated_series = _mapping(series_keys, [series_names[key] for key in series_keys])
     include_series = version == 3 or visible_legend or len(series_keys) > 1
     category_field = "category" if kind.startswith("bar") else "x" if kind.startswith("line") and semantic.get("x_mode") != "numeric" else None
-    category_keys = list(dict.fromkeys(row["category_id"] for row in rows)) if category_field else []
+    category_keys = first_seen(rows, "category_id") if category_field else []
+    category_visual = first_seen(sorted(rows, key=lambda r: r["plot_x"] * (-1 if (enc.get("x", {}).get("scale") or {}).get("reverse") else 1)), "category_id") if kind.startswith("line") and category_field else category_keys
     categories = {row["category_id"]: row["category"] for row in rows} if category_field else {}
     _, repeated_category = _mapping(category_keys, [categories[key] for key in category_keys])
     return {"kind": kind, "semantic": semantic, "rows": rows, "encoding": enc,
@@ -76,9 +77,9 @@ def _context(full: dict, version: int = 4) -> dict:
             "series_index": {key: i for i, key in enumerate(series_keys)},
             "include_series": include_series, "repeated_series": repeated_series,
             "visible_legend": visible_legend,
-            "path_order": kind.startswith("line") and needs_path_order(rows),
+            "path_order": kind.startswith("line") and needs_path_order(rows, x_reverse=bool((enc.get("x", {}).get("scale") or {}).get("reverse"))),
             "stack_endpoints": kind in {"barv_stack", "barh_stack"} and needs_stack_endpoints(rows),
-            "category_field": category_field, "category_keys": category_keys,
+            "category_field": category_field, "category_keys": category_keys, "category_visual": category_visual,
             "categories": categories, "category_index": {key: i for i, key in enumerate(category_keys)},
             "repeated_category": repeated_category}
 
@@ -121,12 +122,17 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
         result["title"] = copy.deepcopy(title)
     if data_type in {"nominal", "ordinal"}:
         result["sort"] = None
+        if context["kind"].startswith("line") and channel == "x" and context["path_order"]:
+            result["sort"] = [("X" + str(context["category_index"][key] + 1)) if context["repeated_category"] else context["categories"][key]
+                              for key in context["category_visual"]]
     else:
         scale = original.get("scale") or {}
         semantic_scale = {k: scale[k] for k in ("type", "base", "exponent", "constant")
                           if k in scale and (k != "type" or scale[k] != "linear")}
         if semantic_scale:
             result["scale"] = semantic_scale
+        if context["kind"].startswith("line") and channel == "x" and scale.get("reverse"):
+            result.setdefault("scale", {})["reverse"] = True
     if context["repeated_category"] and field == context["category_field"]:
         result["field"] = field + "_id"
     return result
@@ -285,6 +291,7 @@ def validate_canonical(spec: dict) -> None:
     if "title" in spec:
         check(valid_title(spec["title"]), "invalid title")
     enc = spec["encoding"]
+    line_mark = spec.get('mark') == 'line' or isinstance(spec.get('mark'), dict) and spec['mark'].get('type') == 'line'
     check(isinstance(enc, dict) and {"x", "y"} <= set(enc), "missing positional encoding")
     check(set(enc) <= {"x", "y", "x2", "y2", "xOffset", "yOffset", "color", "order"}, "unsupported channel")
     used = set()
@@ -300,7 +307,10 @@ def validate_canonical(spec: dict) -> None:
         else:
             check(d.get("type") in {"nominal", "ordinal", "quantitative"}, "unsupported data type")
         if d.get("type") in {"nominal", "ordinal"}:
-            check("sort" in d and d["sort"] is None, "discrete order must follow rows")
+            explicit_line = line_mark and channel == "x" and "path_order" in fields and isinstance(d.get("sort"), list)
+            check("sort" in d and (d["sort"] is None or explicit_line), "discrete order must follow rows except retreating lines")
+            if explicit_line:
+                check(len(d['sort']) == len(set(d['sort'])) and set(d['sort']) == {r[f] for r in rows}, "explicit X order must cover observed positions exactly")
         else:
             check("sort" not in d, "unnecessary quantitative sort")
         if "title" in d:
@@ -309,9 +319,11 @@ def validate_canonical(spec: dict) -> None:
             scale = d["scale"]
             check(channel in {"x", "y"} and isinstance(scale, dict), "invalid scale")
             allowed = {"log": {"type", "base"}, "pow": {"type", "exponent"}, "sqrt": {"type"}, "symlog": {"type", "constant"}}
-            check(isinstance(scale.get("type"), str) and scale["type"] in allowed, "only nonlinear semantic scales")
-            check(set(scale) <= allowed[scale["type"]], "inapplicable scale parameter")
-            for k in set(scale) - {"type"}:
+            reversed_line = line_mark and channel == "x" and scale.get("reverse") is True
+            scale_type = scale.get('type')
+            check(scale_type in allowed or (reversed_line and scale_type is None), "only nonlinear scales or reversed line X")
+            check(set(scale) <= allowed.get(scale_type, set()) | ({'reverse'} if reversed_line else set()), "inapplicable scale parameter")
+            for k in set(scale) - {"type", "reverse"}:
                 v = scale[k]
                 check(type(v) in (int, float) and math.isfinite(v) and v > 0 and (k != "base" or v != 1), "invalid nonlinear parameter")
         if "stack" in d:

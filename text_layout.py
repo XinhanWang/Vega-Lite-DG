@@ -145,12 +145,14 @@ def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: f
                     max_lines = max(len(_lines(value)) for value in wrapped)
                     # Multi-line x labels read horizontally; reserve enough
                     # category spacing without modifying scale/domain values.
-                    if channel_name == "x" and max_lines > 1 and not angled:
+                    if channel_name == "x" and not angled:
                         axis["labelAngle"] = 0
                         needed_width = max(needed_width, count * (max(_width(value, size) for value in wrapped) + 14))
-                    elif channel_name == "y" and max_lines > 1:
+                    elif channel_name == "y":
                         needed_height = max(needed_height, count * (max_lines * axis["labelLineHeight"] + 8))
-                    axis["maxExtent"] = max(_number(axis.get("maxExtent"), 200), max_lines * axis["labelLineHeight"] + 32, max_label_width + 32)
+                    # Let Vega measure the actual label extent for title layout.
+                    # A fixed maxExtent also fixes the title offset, leaving a
+                    # large empty strip when the labels need much less space.
                 axis_title = axis.get("title", channel.get("title"))
                 if axis_title is not None:
                     axis["title"] = _wrap(axis_title, width if channel_name == "x" else height,

@@ -16,7 +16,7 @@
 
 保留了数据族、样式配置、字体、配色、误差棒、柱形纹理、标记/线型、非线性与反向轴、参考线、等比例散点布局、长文字布局和质量检查。折线支持类别、等间隔时间标签和数值 x。所有可选数据族列在 `generation/controls.py`，每个图族的公式位于 `generation/bars.py`、`lines.py` 或 `scatter.py`。
 
-**训练数据的顺序按图片可见顺序写入 `data.values`。** 横向类别从上到下，纵向类别和 x 位置从左到右；组内按位置排列，堆叠按从上到下排列。同 x 的折线记录保持系列顺序。类别、系列和分组偏移通道均使用 `sort: null`。反向轴会改变表中可见顺序，但 GT 不保留绘图朝向 `scale.reverse`；必要的路径/堆叠关系由显式字段保存。
+**训练 GT 顺序按图型规范化。** 散点全图按画面从左到右、同 X 从上到下排序；录入和点击顺序不限。柱图保留类别及组内可见顺序，纵向堆叠从下到上、横向堆叠从左到右。折线保留每条线真实路径的先后，仅同一系列在画面中出现严格 X 回退时输出 path_order；重复 X 和系列切换不触发。逆向数值 X 折线保留 scale.reverse:true；有回退的离散 X 折线以显式 sort 数组保留横轴位置顺序（重名时绑定 x_id）。其余离散通道仍用 sort:null。
 
 类别/时间标签折线强制显示全部标签，历史配置里稀疏的 tick 子集不会删掉类别。没有图例时，每个系列按首次可见顺序命名为 `Series 1`、`Series 2`、`Series 3`……；单系列同样使用 `Series 1`，GT 保持图例隐藏。可见图例保留原名称。
 
@@ -172,3 +172,6 @@ Serialize every view and layer with position channels before visual channels: `x
 ## Ordinary vertical and horizontal stacks (2026-11-13)
 
 `barv_stack` writes each category bottom-to-top; `barh_stack` writes categories top-to-bottom and segments left-to-right. Segment amounts remain scientific values, with cumulative boundaries preserved by `stack_order` or explicit `start`/`end`. The annotation UI needs N+1 clicks for N segments and shares boundaries through undo, reload, recalibration and edits. New production uses absolute stacks only. See [stack annotation contract](docs/stack-annotation-contract.md).
+
+
+2026-11-16：散点导出自动规范化；折线仅在真实路径 X 回退时保留 path_order，重复 X 不触发；逆向数值 X 保留 scale.reverse:true，回退的离散 X 保留显式位置顺序。详见 docs/point-line-contract.md。

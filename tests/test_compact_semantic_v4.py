@@ -116,7 +116,7 @@ class CompactSemanticV4Tests(unittest.TestCase):
         for xs in [[3, 1, 2], [3, 2, 1], [1, 1, 2]]:
             full = full_for('line_n', x_values=xs)
             gt = normalize(full)
-            self.assertEqual([r['x'] for r in gt['data']['values']], sorted(xs * 2))
+            self.assertEqual([r['x'] for r in gt['data']['values']], [x for x in xs for _ in range(2)])
             order = gt['encoding'].get('order', {}).get('field')
             for s in [0, 1]:
                 rows = [r for r in gt['data']['values'] if r['series_id'] == f'S{s + 1}']
@@ -180,7 +180,7 @@ class CompactSemanticV4Tests(unittest.TestCase):
         invalid = [{}, {'data': {'url': 'remote'}, 'mark': 'line', 'encoding': {}}, []]
         for key, value in [('axis', {}), ('legend', None), ('config', {}), ('width', 2), ('transform', []), ('usermeta', {})]:
             v = copy.deepcopy(gt); v[key] = value; invalid.append(v)
-        for key, value in [('axis', {}), ('legend', None), ('scale', {'reverse': True}), ('scale', {'type': 'linear'}), ('type', 'temporal')]:
+        for key, value in [('axis', {}), ('legend', None), ('scale', {'reverse': False}), ('scale', {'type': 'linear'}), ('type', 'temporal')]:
             v = copy.deepcopy(gt); v['encoding']['x'][key] = value; invalid.append(v)
         v = copy.deepcopy(gt); v['mark'] = {'type': 'line', 'point': True}; invalid.append(v)
         v = copy.deepcopy(gt); v['data']['values'][0]['hidden'] = 'leak'; invalid.append(v)

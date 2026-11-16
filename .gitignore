@@ -58,6 +58,7 @@
 
 # SVG font embedding and reproducible style-reference fixtures.
 !/font_embedding.py
+!/font_metrics.py
 !/fonts.manifest.json
 !/docs/font-licenses/
 /docs/font-licenses/*

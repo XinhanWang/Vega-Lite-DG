@@ -43,6 +43,24 @@ def parameter_namespace(kind, seed, controls=None):
     # Python's original imports/definitions do. Each call owns this dictionary.
     _bind(vsr_text, namespace)
     _bind(module, namespace)
+    # Native numeric policy: frozen upstream functions remain available for
+    # provenance, while production retains observations at sampled precision.
+    namespace['human_round'] = float
+    namespace['maybe_int_or_float'] = float
+    for name in ('finalize_matrix', 'finalize_series', 'finalize_x_numeric'):
+        if name in namespace:
+            namespace[name] = lambda values: np.asarray(values, dtype=float).tolist()
+    if 'finalize_values' in namespace:
+        namespace['finalize_values'] = (lambda values: np.asarray(values, dtype=float)) if kind.startswith('scatter') else (lambda values: np.asarray(values, dtype=float).tolist())
+    if kind.startswith('line'):
+        original_axis = namespace['build_x_axis']
+        def numeric_axis(count, mode):
+            x, labels, ticks, tick_labels = original_axis(count, mode)
+            if mode == 'numeric':
+                ticks, tick_labels = vsr_text.numeric_ticks(min(x), max(x), len(ticks))
+                labels = [str(v) for v in x]
+            return x, labels, ticks, tick_labels
+        namespace['build_x_axis'] = numeric_axis
     fonts = [str(ROOT / 'assets/fonts' / name) for name in style_rules.REQUIRED_FONT_FILES]
     if not all(Path(file).is_file() for file in fonts):
         raise FileNotFoundError('The original 16-font sampling pool is incomplete')
