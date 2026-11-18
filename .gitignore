@@ -19,6 +19,7 @@
 !/render.mjs
 !/ordering.py
 !/spec_format.py
+!/statistical.py
 !/generation/
 /generation/*
 !/generation/*.py
@@ -31,6 +32,7 @@
 !/configs/smoke.json
 !/configs/production.json
 !/configs/examples.json
+!/configs/statistical-*.json
 !/tests/
 /tests/*
 !/tests/*.py

@@ -732,6 +732,9 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
 
 def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     """Render-ready full specification and minimal semantic training target."""
+    if kind in {"pie", "boxplot"}:
+        from statistical import build_pair as build_statistical_pair
+        return build_statistical_pair(kind, cfg)
     from text_layout import apply_text_layout
     from presentation import apply_presentation
     full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True)

@@ -13,7 +13,7 @@ from generation import GENERATOR_VERSION, KINDS
 from generation.core import sample_config
 from generation.common import clean
 from generation.vsr_runtime import sample_parameters
-from adapter import build_pair
+from adapter import build_pair, KINDS as GEOMETRY_KINDS
 
 
 class VSRRuntimeTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class VSRRuntimeTests(unittest.TestCase):
         self.assertEqual(current[0],np_state[0]);self.assertTrue(np.array_equal(current[1],np_state[1]));self.assertEqual(current[2:],np_state[2:])
 
     def test_default_core_preserves_raw_data_and_text(self):
-        for index,kind in enumerate(KINDS):
+        for index,kind in enumerate(GEOMETRY_KINDS):
             from generation.controls import normalize_controls
             from generation.core import sample_horizontal_stack
             raw,_=(sample_horizontal_stack(772+index) if kind == 'barh_stack' else sample_parameters(kind,772+index,normalize_controls(kind,None)))

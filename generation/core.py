@@ -20,7 +20,7 @@ def _axis_values(kind, cfg, axis):
         if axis == category_axis:
             return np.arange(len(cfg["labels"])), True
         values = np.asarray(cfg.get("values", cfg.get("matrix")), dtype=float)
-        if kind in {"barv_stack", "barh_stack"}:
+        if kind == "barv_stack":
             values = values.sum(axis=0)
         return np.append(values, 0), False
     if kind.startswith("line"):
@@ -82,7 +82,7 @@ def _axes(rng, kind, cfg, controls):
     if kind.startswith('scatter'):
         shared = tick()
         axes['tick_styles'] = {'x': dict(shared), 'y': dict(shared)}
-    elif kind == 'barv_stack':
+    elif kind in {'barv_stack', 'barh_stack'}:
         axes['tick_styles'] = {'x': tick(), 'y': tick((3, 4))}
     elif kind.startswith('barh'):
         axes['tick_styles'] = {'x': tick(max_width=1.3), 'y': tick((3, 4), direction='out')}
@@ -94,7 +94,6 @@ def _axes(rng, kind, cfg, controls):
     if kind.startswith("line") and cfg["x_mode"] != "numeric":
         axes["xticks"], axes["xticklabels"] = list(range(len(cfg["x_labels"]))), cfg["x_labels"][:]
     return axes
-
 
 def sample_horizontal_stack(seed, controls=None):
     """Sample ordinary horizontal stacks by transposing the vertical stack rules."""
@@ -110,7 +109,6 @@ def sample_horizontal_stack(seed, controls=None):
     cfg.pop('x_ha', None)
     return cfg, rng
 
-
 def sample_config(kind, seed, controls=None):
     """Run the complete VSR parameter rules, then apply native contract adapters.
 
@@ -120,6 +118,9 @@ def sample_config(kind, seed, controls=None):
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
     c = normalize_controls(kind, controls)
+    if kind in {"pie", "boxplot"}:
+        from .summaries import sample
+        return clean(sample(RandomSource(seed), kind, c))
     cfg, p = sample_horizontal_stack(seed, c) if kind == "barh_stack" else sample_parameters(kind, seed, c)
     cfg = clean(cfg)
     cfg['generator_version'] = GENERATOR_VERSION
@@ -199,8 +200,8 @@ def sampling_diagnostics(kind, seed, cfg, controls=None):
             "requested_seed": seed, "sample_seed": seed, "sampling_attempts": 1,
             "controls": clean(c), "family": cfg["family"], "profile": cfg["style"]["profile"],
             "axes": copy.deepcopy(cfg["_render_axes"]), "renderer": "vega-lite",
-            "source": "static VSR parameter rules with independent per-sample RNGs",
-            "upstream": UPSTREAM,
+            "source": "native statistical samplers with independent per-sample RNGs" if kind in {"pie", "boxplot"} else "static VSR parameter rules with independent per-sample RNGs",
+            "upstream": None if kind in {"pie", "boxplot"} else UPSTREAM,
             "config_sha256": config_sha256}
 
 

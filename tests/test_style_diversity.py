@@ -46,6 +46,8 @@ class StyleDiversityTests(unittest.TestCase):
     def test_original_template_ticks_and_mark_density(self):
         for seed in range(60):
             for kind in KINDS:
+                if kind in {'pie', 'boxplot'}:
+                    continue
                 cfg = sample_config(kind,seed)
                 ticks = cfg['_render_axes']['tick_styles']
                 if kind.startswith('scatter'):
