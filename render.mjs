@@ -136,9 +136,27 @@ async function loadRuntime(options) {
   const scenegraphEntry = createRequire(vp.entry).resolve('vega-scenegraph');
   const scenegraph = await import(pathToFileURL(scenegraphEntry).href);
   const metrics = scenegraph.textMetrics;
-  fonts.text_measurement = metrics.width === metrics.estimateWidth ? 'vega_estimated_0.8_times_char_count_times_font_size'
+  if (metrics.width === metrics.estimateWidth && fonts.files.length) {
+    const result = spawnSync(process.env.VSR_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
+      [path.join(SCRIPT_DIR, 'font_metrics.py')], {input: JSON.stringify(fonts.files), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024});
+    if (result.status !== 0) throw new Error(`Font advance export failed: ${result.error || result.stderr}`);
+    const faces = JSON.parse(result.stdout);
+    metrics.width = (item, text) => {
+      const family = String(item.font || '').replaceAll('"', '').replaceAll("'", '').toLowerCase();
+      const weight = item.fontWeight === 'bold' ? 700 : Number(item.fontWeight) || 400;
+      const face = faces.filter(f => f.family?.toLowerCase() === family)
+        .sort((a,b) => (Math.abs((a.weight || 400)-weight)+(a.style === (item.fontStyle || 'normal') ? 0 : 1000))
+          -(Math.abs((b.weight || 400)-weight)+(b.style === (item.fontStyle || 'normal') ? 0 : 1000)))[0];
+      const value = String(text ?? item.text ?? '').trim();
+      if (!face) return value.length * .8 * (item.fontSize ?? 11);
+      return [...value].reduce((sum,c) => sum + (face.advances[c.codePointAt(0)] ?? .8), 0) * (item.fontSize ?? 11);
+    };
+    fonts.text_measurement = 'project_font_glyph_advances';
+    fonts.measurement_note = 'Widths use project font hmtx advances. Kerning and complex shaping remain approximate; unavailable faces use Vega estimates.';
+  }
+  fonts.text_measurement ||= metrics.width === metrics.estimateWidth ? 'vega_estimated_0.8_times_char_count_times_font_size'
     : metrics.width === metrics.measureWidth ? 'node_canvas' : 'custom';
-  fonts.measurement_note = fonts.text_measurement.startsWith('vega_estimated')
+  fonts.measurement_note ||= fonts.text_measurement.startsWith('vega_estimated')
     ? 'No usable node-canvas context is available. Vega estimates layout text widths independently of resvg font rendering; text bounds and clipping audits are approximate.'
     : 'Vega uses a native canvas context for text widths. Project font registration and fallback depend on the recorded canvas registration list.';
   const rasterName = options.rasterizer === 'sharp' ? 'sharp' : '@resvg/resvg-js';

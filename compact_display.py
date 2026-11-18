@@ -10,10 +10,12 @@ import copy
 import json
 
 from compact import validate_target
+from identity import migrate_spec
 
 
 def render_spec(compact: dict) -> dict:
     """Return a fresh Vega-Lite preview with identical observation data/order."""
+    compact = migrate_spec(compact)
     validate_target(compact)
     result = copy.deepcopy(compact)
     rows = result["data"]["values"]
@@ -26,8 +28,8 @@ def render_spec(compact: dict) -> dict:
         if channel in {"x", "y"} and discrete:
             d["axis"] = {"values": list(dict.fromkeys(r[f] for r in rows)),
                          "labelOverlap": False, "labelLimit": 0, "labelBound": False}
-        if f.endswith("_instance") and channel in {"x", "y", "color"}:
-            labels = {r[f]: r[f.removesuffix("_instance")] for r in rows}
+        if f.endswith("_id") and channel in {"x", "y", "color"}:
+            labels = {r[f]: r[f.removesuffix("_id")] for r in rows}
             expr = json.dumps(labels, ensure_ascii=False, separators=(",", ":")) + "[datum.value]"
             d.setdefault("legend" if channel == "color" else "axis", {})["labelExpr"] = expr
         if channel == "color":

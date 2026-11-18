@@ -9,9 +9,17 @@
     "line_1": 1,
     "line_n": 1,
     "scatter_1": 1,
-    "scatter_n": 1
+    "scatter_n": 1,
+    "barh_stack": 1
   },
-  "controls": {},
+  "controls": {
+    "barv_stack": {
+      "stack_mode": "absolute"
+    },
+    "barh_stack": {
+      "stack_mode": "absolute"
+    }
+  },
   "workers": 2,
   "target_side": 1036
 }

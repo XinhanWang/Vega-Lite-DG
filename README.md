@@ -23,7 +23,7 @@ Pie 和 Box Plot 使用 `generation/summaries.py` 采样、`statistical.py` 构�
 
 保留了数据族、样式配置、字体、配色、误差棒、柱形纹理、标记/线型、非线性与反向轴、参考线、等比例散点布局、长文字布局和质量检查。折线支持类别、等间隔时间标签和数值 x。所有可选数据族列在 `generation/controls.py`，每个图族的公式位于 `generation/bars.py`、`lines.py` 或 `scatter.py`。
 
-**训练数据的顺序按图片可见顺序写入 `data.values`。** 横向类别从上到下，纵向类别和 x 位置从左到右；组内按位置排列，堆叠按从上到下排列。同 x 的折线记录保持系列顺序。类别、系列和分组偏移通道均使用 `sort: null`。反向轴会改变表中可见顺序，但 GT 不保留绘图朝向 `scale.reverse`；必要的路径/堆叠关系由显式字段保存。
+**训练 GT 顺序按图型规范化。** 散点全图按画面从左到右、同 X 从上到下排序；录入和点击顺序不限。柱图保留类别及组内可见顺序，纵向堆叠从下到上、横向堆叠从左到右。折线保留每条线真实路径的先后，仅同一系列在画面中出现严格 X 回退时输出 path_order；重复 X 和系列切换不触发。逆向数值 X 折线保留 scale.reverse:true；有回退的离散 X 折线以显式 sort 数组保留横轴位置顺序（重名时绑定 x_id）。其余离散通道仍用 sort:null。
 
 类别/时间标签折线强制显示全部标签，历史配置里稀疏的 tick 子集不会删掉类别。没有图例时，每个系列按首次可见顺序命名为 `Series 1`、`Series 2`、`Series 3`……；单系列同样使用 `Series 1`，GT 保持图例隐藏。可见图例保留原名称。
 
@@ -135,14 +135,14 @@ PATH="$PWD/../.runtime:$PATH" VSR_TEXT_TEST_MODULES="$PWD/../node_modules" VSR_F
 
 当前生成器版本为 `vega-lite-native/1.3`。原九类默认生产继续使用 `generation/vsr_samplers/` 的九类原版纯参数函数和 `generation/vsr_text.py`：原 family 权重、数量分段、图类尺度分布、族内全部公式与分支、排序、多线共享基曲线、多散点局部族混合、随机舍入、标题模板、轴标题缺省、系列名及完整词表均保留。数据和标题的默认逻辑不再使用1.0/1.1的均匀族采样和12指标固定标题模板。旧版本的验证记录保留为历史证据。
 
-每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认自然percent样本保留原版随机舍入后的值。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
+每个样本使用独立 Python Random 和 NumPy RandomState；生产无需Matplotlib，不运行旧脚本或读取history。可显式指定counts、family、profile等controls。显式 `stack_mode=percent` 仍保证段值总和100；默认只生成 absolute 普通堆叠；旧配置显式 percent 仅保留历史兼容。全部类别标签显示、隐藏图例系列按可见顺序编号、SVG内嵌字体和恢复/重投影继续保留。
 
 同版本恢复使用 `generate --resume`；1.1及更早的保存配置使用 `reproject` 到新目录，避免混采。修改前清单见 `docs/vsr-alignment-baseline-20261111.md`，数值和文本移植说明见 `docs/vsr-numeric-restoration-20261111.md`、`docs/vsr-text-restoration-20261111.md`，实际对照与交付证据见 `docs/vsr-alignment-delivery-20261111.md`。
 
 
 ## Compact-v4：语义 GT 与预览分离
 
-保留观察数值、可见类别/系列名称、语义标题与单位、分组/堆叠/误差区间、非线性尺度及必要的路径/堆叠顺序。颜色通道的字段分组关系不是装饰，不能删除；只删除具体颜色范围。重复标签保留原文字，使用 \*_instance 字段表达独立身份，编码引用身份字段。隐藏的单匿名 Series 1 删除重复系列列及颜色通道。
+保留观察数值、可见类别/系列名称、语义标题与单位、分组/堆叠/误差区间、非线性尺度及必要的路径/堆叠顺序。颜色通道的字段分组关系不是装饰，不能删除；只删除具体颜色范围。重复标签保留原文字，使用 `category_id` / `x_id` / `series_id` 字符串表达独立身份，编码引用身份字段。隐藏的单匿名 Series 1 删除重复系列列及颜色通道。
 
 移除字体、画布尺寸、轴/图例排版、刻度选择、标签表达式及旋转、背景、具体颜色、单点折线的可见性补丁。预览从语义 GT 的深拷贝派生默认显示设置；数据表及行序完全相同。严格的 v4 规范校验和幂等规范化拒绝混入 v3 显示字段；历史 v3 可显式解码用于迁移审计。
 
@@ -159,3 +159,26 @@ python3 pipeline.py reproject --source runs/old_run --output runs/new_compact_v4
 Vega-Lite output uses object marks (`{"type":"bar"}`). Unit views follow `title → data → mark → encoding → other keys`; layered views follow `title → data → encoding → layer → other keys`, including nested layers. Absent keys are skipped. Assistant JSON in `train.jsonl` preserves this order. Historical string marks are accepted and normalized; observation values are preserved and hash serialization remains independent.
 
 Shared semantic channels live in the layered target's top-level `encoding`; layer encodings contain overrides such as error interval endpoints. Output syntax follows the [unified GT template](https://aicarrier.feishu.cn/docx/S5yKdnAPoobj5Zxdi2Ych9sLnSG).
+
+
+### Native error bars (2026-11-12)
+
+Compact-v4 error intervals use exactly `mark: {"type": "errorbar"}`, not hand-built `rule` layers. `lower` and `upper` remain absolute numeric endpoints, not error lengths; the bar value and observation order are unchanged. Vertical bars override `y`/`y2`, horizontal bars override `x`/`x2`. Grouped bars inherit the shared series color and category offset; stacked errors use `stack: null` on the interval axis so absolute endpoints are not accumulated again. Cap styling is a display default, not part of the semantic GT. Full presentation specs may still contain primitive rules for their original rendering.
+
+Projection version is `3.0.2`; sampler version and compact-v4 contract stay unchanged. Existing runs with older projection versions cannot be resumed into this revision. Use a fresh `generate` output directory for new production (or explicitly `reproject` historical full specs).
+
+## 2026-11-12 GT 身份字段统一
+
+投影版本 `3.1.0`。`category_id=C1…`、`x_id=X1…`、`series_id=S1…` 按实际对象首次可见顺序分配；只在对应维度重名时导出。显示原文不变，数值/顺序字段先于 `series`，`series_id` 最后。旧 `*_instance` 在导入时迁移；训练 GT 不保存 `labelExpr`。新版本不能续写旧投影运行目录，请生成新目录。详见 [统一契约](docs/gt-identity-contract.md)。
+
+
+## Encoding channel order
+
+Serialize every view and layer with position channels before visual channels: `x → y → xOffset → yOffset → x2 → y2 → theta → theta2 → radius → radius2 → longitude → longitude2 → latitude → latitude2 → color → other channels`. Omit absent channels; preserve the relative order of other channels. For grouped bars this gives `x → y → xOffset/yOffset → color`. Only encoding object key order changes; channel definitions, observations and rendering semantics are preserved.
+
+## Ordinary vertical and horizontal stacks (2026-11-13)
+
+`barv_stack` writes each category bottom-to-top; `barh_stack` writes categories top-to-bottom and segments left-to-right. Segment amounts remain scientific values, with cumulative boundaries preserved by `stack_order` or explicit `start`/`end`. The annotation UI needs N+1 clicks for N segments and shares boundaries through undo, reload, recalibration and edits. New production uses absolute stacks only. See [stack annotation contract](docs/stack-annotation-contract.md).
+
+
+2026-11-16：散点导出自动规范化；折线仅在真实路径 X 回退时保留 path_order，重复 X 不触发；逆向数值 X 保留 scale.reverse:true，回退的离散 X 保留显式位置顺序。详见 docs/point-line-contract.md。

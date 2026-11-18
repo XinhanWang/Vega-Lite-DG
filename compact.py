@@ -9,9 +9,10 @@ from typing import Any
 
 from ordering import first_seen, needs_path_order, needs_stack_endpoints, visual_rows
 from spec_format import format_spec
+from identity import IDENTITIES, ROW_FIELDS, migrate_spec, order_row
 
 
-KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack",
+KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack", "barh_stack",
          "line_1", "line_n", "scatter_1", "scatter_n"}
 
 
@@ -66,7 +67,8 @@ def _context(full: dict, version: int = 4) -> dict:
     _, repeated_series = _mapping(series_keys, [series_names[key] for key in series_keys])
     include_series = version == 3 or visible_legend or len(series_keys) > 1
     category_field = "category" if kind.startswith("bar") else "x" if kind.startswith("line") and semantic.get("x_mode") != "numeric" else None
-    category_keys = list(dict.fromkeys(row["category_id"] for row in rows)) if category_field else []
+    category_keys = first_seen(rows, "category_id") if category_field else []
+    category_visual = first_seen(sorted(rows, key=lambda r: r["plot_x"] * (-1 if (enc.get("x", {}).get("scale") or {}).get("reverse") else 1)), "category_id") if kind.startswith("line") and category_field else category_keys
     categories = {row["category_id"]: row["category"] for row in rows} if category_field else {}
     _, repeated_category = _mapping(category_keys, [categories[key] for key in category_keys])
     return {"kind": kind, "semantic": semantic, "rows": rows, "encoding": enc,
@@ -75,9 +77,9 @@ def _context(full: dict, version: int = 4) -> dict:
             "series_index": {key: i for i, key in enumerate(series_keys)},
             "include_series": include_series, "repeated_series": repeated_series,
             "visible_legend": visible_legend,
-            "path_order": kind.startswith("line") and needs_path_order(rows),
-            "stack_endpoints": kind == "barv_stack" and needs_stack_endpoints(rows),
-            "category_field": category_field, "category_keys": category_keys,
+            "path_order": kind.startswith("line") and needs_path_order(rows, x_reverse=bool((enc.get("x", {}).get("scale") or {}).get("reverse"))),
+            "stack_endpoints": kind in {"barv_stack", "barh_stack"} and needs_stack_endpoints(rows),
+            "category_field": category_field, "category_keys": category_keys, "category_visual": category_visual,
             "categories": categories, "category_index": {key: i for i, key in enumerate(category_keys)},
             "repeated_category": repeated_category}
 
@@ -94,21 +96,21 @@ def _data(context: dict, canonical: bool = True) -> list[dict]:
             result["series"] = context["series_names"][row["series_id"]]
             if context["repeated_series"]:
                 index = context["series_index"][row["series_id"]]
-                result["series_instance" if canonical else "series"] = index
+                result["series_id" if canonical else "series"] = f"S{index + 1}" if canonical else index
         if context["repeated_category"]:
             field = context["category_field"]
             index = context["category_index"][row["category_id"]]
-            result[field + "_instance" if canonical else field] = index
+            result[field + "_id" if canonical else field] = ("C" if field == "category" else "X") + str(index + 1) if canonical else index
         if "error_lower" in row:
             result.update(lower=row["error_lower"], upper=row["error_upper"])
         if context["path_order"]:
             result["path_order"] = row["point_index"]
-        if context["kind"] == "barv_stack":
+        if context["kind"] in {"barv_stack", "barh_stack"}:
             if context["stack_endpoints"]:
                 result.update(start=row["value_lower"], end=row["value_upper"])
             else:
                 result["stack_order"] = row["series_index"]
-        output.append(result)
+        output.append(order_row(result))
     return output
 
 
@@ -125,6 +127,9 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
         result["title"] = copy.deepcopy(title)
     if data_type in {"nominal", "ordinal"}:
         result["sort"] = None
+        if context["kind"].startswith("line") and channel == "x" and context["path_order"]:
+            result["sort"] = [("X" + str(context["category_index"][key] + 1)) if context["repeated_category"] else context["categories"][key]
+                              for key in context["category_visual"]]
     else:
         axis = original.get("axis") or {}
         if unit_format(axis.get("format"), axis.get("formatType", "number")):
@@ -134,13 +139,15 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
                           if k in scale and (k != "type" or scale[k] != "linear")}
         if semantic_scale:
             result["scale"] = semantic_scale
+        if context["kind"].startswith("line") and channel == "x" and scale.get("reverse"):
+            result.setdefault("scale", {})["reverse"] = True
     if context["repeated_category"] and field == context["category_field"]:
-        result["field"] = field + "_instance"
+        result["field"] = field + "_id"
     return result
 
 
 def _series_encoding(context: dict) -> dict:
-    return {"field": "series_instance" if context["repeated_series"] else "series",
+    return {"field": "series_id" if context["repeated_series"] else "series",
             "type": "nominal", "sort": None}
 
 
@@ -163,6 +170,7 @@ def normalize(full: dict) -> dict:
         validate_target(result)
         return result
     if _semantic(full) is None:
+        full = migrate_spec(full)
         validate_target(full)
         return format_spec(full)
     context = _context(full)
@@ -183,7 +191,7 @@ def normalize(full: dict) -> dict:
             encoding["color"] = _series_encoding(context)
         if kind in {"barh_n", "barv_n"}:
             encoding[category_axis + "Offset"] = _series_encoding(context)
-        if kind == "barv_stack":
+        if kind in {"barv_stack", "barh_stack"}:
             if context["stack_endpoints"]:
                 # Arbitrary baselines and crossing signed stacks cannot be
                 # recreated by Vega's zero-based diverging stack transform.
@@ -194,9 +202,9 @@ def normalize(full: dict) -> dict:
                 encoding["order"] = {"field": "stack_order", "type": "quantitative"}
         if any("lower" in row for row in result["data"]["values"]):
             interval = {"field": "lower", "type": "quantitative"}
-            if kind == "barv_stack":
+            if kind in {"barv_stack", "barh_stack"}:
                 interval["stack"] = None
-            result["layer"] = [{"mark": "bar"}, {"mark": "rule", "encoding": {
+            result["layer"] = [{"mark": {"type": "bar"}}, {"mark": {"type": "errorbar"}, "encoding": {
                 value_axis: interval, value_axis + "2": {"field": "upper"}}}]
         else:
             result["mark"] = "bar"
@@ -250,7 +258,7 @@ def semantic_rows(spec: dict, version: int = 4) -> list[dict]:
         for row in rows:
             row["series_instance"] = row["series"]
             row["series"] = _decode(expr, row["series"])
-    return rows
+    return migrate_spec({"data": {"values": rows}, "encoding": {}})["data"]["values"]
 
 
 def validate_canonical(spec: dict) -> None:
@@ -274,7 +282,7 @@ def validate_canonical(spec: dict) -> None:
     bar = {"category", "value"} <= fields
     core = {"category", "value"} if bar else {"x", "y"}
     check(core <= fields, "missing core observations")
-    check(fields <= core | {"series", "category_instance", "x_instance", "series_instance", "lower", "upper", "path_order", "stack_order", "start", "end"}, "unknown data fields")
+    check(fields <= core | {"series", "category_id", "x_id", "series_id", "lower", "upper", "path_order", "stack_order", "start", "end"}, "unknown data fields")
     check(("lower" in fields) == ("upper" in fields), "incomplete error interval")
     check(("start" in fields) == ("end" in fields), "incomplete stack endpoints")
     for row in rows:
@@ -283,24 +291,27 @@ def validate_canonical(spec: dict) -> None:
             check(not isinstance(v, (int, float)) or math.isfinite(v), "nonfinite observation")
             if f in {"value", "y", "lower", "upper", "start", "end", "path_order", "stack_order"}:
                 check(isinstance(v, (int, float)), "numeric observation required")
-    for f in ("category", "x", "series"):
-        identity = f + "_instance"
+    for f, (identity, prefix) in IDENTITIES.items():
         if identity not in fields:
             continue
         check(f in fields, "identity without human label")
         labels = {}
         for row in rows:
             i = row[identity]
-            check(type(i) is int and i >= 0, "integer identity required")
+            check(isinstance(i, str) and i.startswith(prefix) and i[len(prefix):].isdigit()
+                  and str(int(i[len(prefix):])) == i[len(prefix):] and int(i[len(prefix):]) > 0,
+                  "string identity required: " + prefix + "1, " + prefix + "2, ...")
             check(i not in labels or labels[i] == row[f], "identity label conflict")
             labels[i] = row[f]
-        check(list(labels) == list(range(len(labels))), "identities must follow first-seen order")
+        check(list(labels) == [prefix + str(i + 1) for i in range(len(labels))], "identities must follow first-seen order")
         check(len(set(labels.values())) < len(labels), "unnecessary identity field")
+    check(all(list(r) == list(order_row(r)) for r in rows), "noncanonical row field order")
     def valid_title(value):
         return isinstance(value, str) and bool(value) or isinstance(value, list) and bool(value) and all(isinstance(v, str) for v in value)
     if "title" in spec:
         check(valid_title(spec["title"]), "invalid title")
     enc = spec["encoding"]
+    line_mark = spec.get('mark') == 'line' or isinstance(spec.get('mark'), dict) and spec['mark'].get('type') == 'line'
     check(isinstance(enc, dict) and {"x", "y"} <= set(enc), "missing positional encoding")
     check(set(enc) <= {"x", "y", "x2", "y2", "xOffset", "yOffset", "color", "order"}, "unsupported channel")
     used = set()
@@ -309,14 +320,17 @@ def validate_canonical(spec: dict) -> None:
         check(set(d) <= {"field", "type", "title", "sort", "scale", "stack", "axis"}, "display/unsupported encoding property")
         check(isinstance(d.get("field"), str) and d["field"] in fields, "field missing from data")
         f = d["field"]
-        check(f + "_instance" not in fields, "encoding must use identity field")
+        check(f + "_id" not in fields, "encoding must use identity field")
         used.add(f)
         if channel in {"x2", "y2"}:
             check(set(d) == {"field"}, "secondary channel grammar")
         else:
             check(d.get("type") in {"nominal", "ordinal", "quantitative"}, "unsupported data type")
         if d.get("type") in {"nominal", "ordinal"}:
-            check("sort" in d and d["sort"] is None, "discrete order must follow rows")
+            explicit_line = line_mark and channel == "x" and "path_order" in fields and isinstance(d.get("sort"), list)
+            check("sort" in d and (d["sort"] is None or explicit_line), "discrete order must follow rows except retreating lines")
+            if explicit_line:
+                check(len(d['sort']) == len(set(d['sort'])) and set(d['sort']) == {r[f] for r in rows}, "explicit X order must cover observed positions exactly")
         else:
             check("sort" not in d, "unnecessary quantitative sort")
         if "title" in d:
@@ -330,16 +344,18 @@ def validate_canonical(spec: dict) -> None:
             scale = d["scale"]
             check(channel in {"x", "y"} and isinstance(scale, dict), "invalid scale")
             allowed = {"log": {"type", "base"}, "pow": {"type", "exponent"}, "sqrt": {"type"}, "symlog": {"type", "constant"}}
-            check(isinstance(scale.get("type"), str) and scale["type"] in allowed, "only nonlinear semantic scales")
-            check(set(scale) <= allowed[scale["type"]], "inapplicable scale parameter")
-            for k in set(scale) - {"type"}:
+            reversed_line = line_mark and channel == "x" and scale.get("reverse") is True
+            scale_type = scale.get('type')
+            check(scale_type in allowed or (reversed_line and scale_type is None), "only nonlinear scales or reversed line X")
+            check(set(scale) <= allowed.get(scale_type, set()) | ({'reverse'} if reversed_line else set()), "inapplicable scale parameter")
+            for k in set(scale) - {"type", "reverse"}:
                 v = scale[k]
                 check(type(v) in (int, float) and math.isfinite(v) and v > 0 and (k != "base" or v != 1), "invalid nonlinear parameter")
         if "stack" in d:
             check(channel in {"x", "y"} and d["stack"] in (None, "zero"), "invalid stack")
     for channel in ("color", "xOffset", "yOffset"):
         if channel in enc:
-            check(enc[channel] == {"field": "series_instance" if "series_instance" in fields else "series", "type": "nominal", "sort": None}, "series channel grammar")
+            check(enc[channel] == {"field": "series_id" if "series_id" in fields else "series", "type": "nominal", "sort": None}, "series channel grammar")
     check(("series" in fields) == ("color" in enc), "series grouping required")
     if "layer" in spec:
         check("mark" not in spec and bar and "lower" in fields, "only explicit bar error layers supported")
@@ -347,7 +363,7 @@ def validate_canonical(spec: dict) -> None:
         interval = {"field": "lower", "type": "quantitative"}
         if {"stack_order", "start"} & fields:
             interval["stack"] = None
-        expected = [{"mark": "bar"}, {"mark": "rule", "encoding": {axis: interval, axis + "2": {"field": "upper"}}}]
+        expected = [{"mark": {"type": "bar"}}, {"mark": {"type": "errorbar"}, "encoding": {axis: interval, axis + "2": {"field": "upper"}}}]
         check(format_spec(spec)["layer"] == format_spec({"layer": expected})["layer"], "unsupported layer structure")
         used.update({"lower", "upper"})
         mark = "bar"
@@ -358,28 +374,28 @@ def validate_canonical(spec: dict) -> None:
         check("lower" not in fields, "errors need explicit layers")
     check((mark == "bar") == bar, "mark/data mismatch")
     if bar:
-        category_axis = "y" if enc["x"]["field"] == "value" else "x"
+        category_axis = "y" if enc["x"]["field"] in {"value", "end"} else "x"
         value_axis = "x" if category_axis == "y" else "y"
-        check(enc[category_axis]["field"] == ("category_instance" if "category_instance" in fields else "category") and enc[category_axis]["type"] == "nominal", "bar category encoding")
+        check(enc[category_axis]["field"] == ("category_id" if "category_id" in fields else "category") and enc[category_axis]["type"] == "nominal", "bar category encoding")
         check(enc[value_axis]["field"] == ("end" if "start" in fields else "value") and enc[value_axis]["type"] == "quantitative", "bar value encoding")
-        check(not {"path_order", "x_instance"} & fields, "line fields in bar")
+        check(not {"path_order", "x_id"} & fields, "line fields in bar")
         check(not {"xOffset", "yOffset"} & set(enc) or category_axis + "Offset" in enc, "offset axis")
     else:
-        check(enc["x"]["field"] == ("x_instance" if "x_instance" in fields else "x") and enc["y"]["field"] == "y" and enc["y"]["type"] == "quantitative", "xy encoding")
-        check(not {"start", "stack_order", "category_instance"} & fields and not {"xOffset", "yOffset", "x2", "y2"} & set(enc), "bar fields in xy chart")
+        check(enc["x"]["field"] == ("x_id" if "x_id" in fields else "x") and enc["y"]["field"] == "y" and enc["y"]["type"] == "quantitative", "xy encoding")
+        check(not {"start", "stack_order", "category_id"} & fields and not {"xOffset", "yOffset", "x2", "y2"} & set(enc), "bar fields in xy chart")
         if enc["x"]["type"] == "quantitative":
             check(all(type(r["x"]) in (int, float) for r in rows), "numeric x required")
     if "path_order" in fields:
         check(mark == "line" and enc.get("order") == {"field": "path_order", "type": "quantitative"}, "path ordering required")
     if "stack_order" in fields:
-        check(bar and enc.get("order") == {"field": "stack_order", "type": "quantitative"} and enc["y"].get("stack") == "zero", "stack ordering required")
+        check(bar and enc.get("order") == {"field": "stack_order", "type": "quantitative"} and enc[value_axis].get("stack") == "zero", "stack ordering required")
     if "start" in fields:
-        check(bar and enc["y"].get("field") == "end" and enc["y"].get("stack", "missing") is None and enc.get("y2") == {"field": "start"}, "stack endpoints required")
+        check(bar and enc[value_axis].get("field") == "end" and enc[value_axis].get("stack", "missing") is None and enc.get(value_axis + "2") == {"field": "start"}, "stack endpoints required")
         used.add("value")
     if "order" in enc:
         check(enc["order"] == {"field": "path_order" if "path_order" in fields else "stack_order", "type": "quantitative"} and bool({"path_order", "stack_order"} & fields), "unsupported order")
     for f in fields:
-        check(f in used or f + "_instance" in used, "unconsumed data field " + f)
+        check(f in used or f + "_id" in used, "unconsumed data field " + f)
 
 
 validate_target = validate_canonical

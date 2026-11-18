@@ -25,7 +25,7 @@ def fixture(kind):
             cfg.update(matrix=[[1, -3, 0], [4, 5, 2]], n_series=2, series_names=["repeat", "repeat"],
                        offsets=[-0.15, 0.15], hatches=["/", None], show_error=True,
                        xerr=[[0.2, 0.5, 0.1], [0.4, 0.3, 0.2]], yerr=[[0.2, 0.5, 0.1], [0.4, 0.3, 0.2]])
-        if kind == "barv_stack":
+        if kind in {"barv_stack", "barh_stack"}:
             cfg.update(bottoms=[[0, 0, 0], [1, -3, 0]], stack_mode="absolute", show_error=False)
     elif kind.startswith("line"):
         cfg.update(x_mode="numeric", x_values=[0.2, 1.7, 2.0], x_labels=["0.2", "1.7", "2"],
@@ -70,11 +70,11 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual([r["plot_x"] for r in source["rows"]], [-0.15, 0.15, 0.85, 1.15, 1.85, 2.15])
         rows = compact["data"]["values"]
         self.assertEqual([r["category"] for r in rows], ["repeat", "repeat", "repeat", "repeat", "Z", "Z"])
-        self.assertEqual([r["category_instance"] for r in rows], [0, 0, 1, 1, 2, 2])
+        self.assertEqual([r["category_id"] for r in rows], ["C1", "C1", "C2", "C2", "C3", "C3"])
         self.assertEqual([r["series"] for r in rows], ["repeat"] * 6)
-        self.assertEqual([r["series_instance"] for r in rows], [0, 1, 0, 1, 0, 1])
-        self.assertEqual(compact["encoding"]["color"]["field"], "series_instance")
-        self.assertEqual(compact["encoding"]["xOffset"]["field"], "series_instance")
+        self.assertEqual([r["series_id"] for r in rows], ["S1", "S2", "S1", "S2", "S1", "S2"])
+        self.assertEqual(compact["encoding"]["color"]["field"], "series_id")
+        self.assertEqual(compact["encoding"]["xOffset"]["field"], "series_id")
         self.assertNotIn("labelExpr", json.dumps(compact))
         self.assertEqual(project_rows(full), semantic_rows(compact))
 
@@ -97,10 +97,10 @@ class AdapterTests(unittest.TestCase):
                                 for s, (start, count) in enumerate(zip(cfg["starts"], cfg["counts"])) for i in range(start, start + count)]
                 # The fixture's horizontal y axis increases upward; its visible
                 # category/group order is therefore the reverse of source order.
-                if kind.startswith("barh"):
+                if kind == "barh_stack":
+                    expected = [expected[index] for index in (4, 5, 2, 3, 0, 1)]
+                elif kind.startswith("barh"):
                     expected.reverse()
-                elif kind == "barv_stack":
-                    expected = [expected[index] for index in (1, 0, 3, 2, 5, 4)]
                 self.assertEqual(source["data_ori"], expected)
 
     def test_native_scientific_offset_preserves_values_without_gt_axis_guides(self):
@@ -153,18 +153,18 @@ class AdapterTests(unittest.TestCase):
         cfg["bottoms"] = [[2, 7, 0], [11, -5, 3]]
         full, compact, source = build_pair("barv_stack", cfg)
         self.assertEqual([(r["value_lower"], r["value_upper"]) for r in source["rows"]],
-                         [(11, 15), (2, 3), (7, 4), (-5, 0), (3, 5), (0, 0)])
-        self.assertEqual([r["plot_y"] for r in source["rows"]], [13, 2.5, 5.5, -2.5, 4, 0])
+                         [(2, 3), (11, 15), (-5, 0), (7, 4), (0, 0), (3, 5)])
+        self.assertEqual([r["plot_y"] for r in source["rows"]], [2.5, 13, -2.5, 5.5, 0, 4])
         self.assertIsNone(compact["encoding"]["y"]["stack"])
         self.assertEqual(compact["encoding"]["y"]["field"], "end")
         self.assertEqual(compact["encoding"]["y2"], {"field": "start"})
-        self.assertEqual([(r["start"], r["end"]) for r in compact["data"]["values"]], [(11, 15), (2, 3), (7, 4), (-5, 0), (3, 5), (0, 0)])
+        self.assertEqual([(r["start"], r["end"]) for r in compact["data"]["values"]], [(2, 3), (11, 15), (-5, 0), (7, 4), (0, 0), (3, 5)])
 
     def test_percent_stack_is_not_normalized_again(self):
         cfg = fixture("barv_stack")
         cfg.update(matrix=[[25, 20, 40], [75, 80, 60]], bottoms=[[0, 0, 0], [25, 20, 40]], stack_mode="percent")
         _, compact, source = build_pair("barv_stack", cfg)
-        self.assertEqual([r["value_upper"] for r in source["rows"]], [100, 25, 100, 20, 100, 40])
+        self.assertEqual([r["value_upper"] for r in source["rows"]], [25, 100, 20, 100, 40, 100])
         self.assertEqual(source["semantic"]["stack_mode"], "percent")
         self.assertNotIn('"normalize"', json.dumps(compact))
 
@@ -190,8 +190,8 @@ class AdapterTests(unittest.TestCase):
                 self.assertIsNone(enc["sort"])
                 self.assertEqual([r["x"] for r in compact["data"]["values"]], labels)
                 if mode == "categorical":
-                    self.assertEqual(enc["field"], "x_instance")
-                    self.assertEqual([r["x_instance"] for r in compact["data"]["values"]], [0, 1, 2])
+                    self.assertEqual(enc["field"], "x_id")
+                    self.assertEqual([r["x_id"] for r in compact["data"]["values"]], ["X1", "X2", "X3"])
                 if mode == "temporal":
                     self.assertEqual([r["x_temporal"] for r in source["rows"]], ["2024-01-01", "2024-02-01", "2024-03-01"])
                     self.assertIn("equal calendar periods", source["semantic"]["temporal_spacing"])

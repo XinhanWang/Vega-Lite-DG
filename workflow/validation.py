@@ -13,11 +13,19 @@ def audit_visible_order(kind, rows, primary):
     positions = {element['datum']['row_id']: element['anchor'] for element in primary}
     if set(positions) != {row['row_id'] for row in rows}:
         return []  # Coverage has a separate, more precise error.
+    if kind.startswith('line'):
+        last = {}
+        for row in rows:
+            key = row['series_id']
+            if key in last and row['point_index'] < last[key]:
+                return ['data.values differs from the real per-series path']
+            last[key] = row['point_index']
+        return []
     keys = []
     for row in rows:
         x, y = (round(value, 6) for value in positions[row['row_id']])
-        keys.append((y,) if kind.startswith('barh') else
-                    (x, y) if kind == 'barv_stack' or kind.startswith('scatter') else (x,))
+        keys.append((y, x) if kind == 'barh_stack' else (y,) if kind.startswith('barh') else
+                    (x, -y) if kind == 'barv_stack' else (x, y) if kind.startswith('scatter') else (x,))
     if keys != sorted(keys):
         return ['data.values order differs from rendered positions']
     return []

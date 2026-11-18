@@ -80,6 +80,19 @@ def choose_weighted(items: list, weights: list[float]):
     return random.choices(items, weights=weights, k=1)[0]
 
 
+def numeric_ticks(low: float, high: float, count: int) -> tuple[list[float], list[str]]:
+    """One deterministic numeric lattice drives both positions and labels."""
+    if low == high:
+        return [float(low)], [str(float(low))]
+    raw = (high - low) / max(1, count - 1)
+    power = 10 ** math.floor(math.log10(raw))
+    step = min((1, 2, 2.5, 5, 10), key=lambda n: abs(n - raw / power)) * power
+    start, end = math.ceil(low / step), math.floor(high / step)
+    decimals = max(0, -math.floor(math.log10(step)) + 1)
+    values = [round(i * step, decimals) for i in range(start, end + 1)]
+    return values, [format(v, '.15g') for v in values]
+
+
 def human_round(value: float) -> float | int:
     if value == 0:
         return 0

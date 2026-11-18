@@ -60,6 +60,7 @@
 
 # SVG font embedding and reproducible style-reference fixtures.
 !/font_embedding.py
+!/font_metrics.py
 !/fonts.manifest.json
 !/docs/font-licenses/
 /docs/font-licenses/*
@@ -90,3 +91,8 @@
 
 # Display-only compilation of semantic training targets.
 !/compact_display.py
+
+# Semantic GT object-identity migration and canonical row order.
+!/identity.py
+
+!/tests/fixtures/identity-contract.json

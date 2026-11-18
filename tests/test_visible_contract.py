@@ -118,8 +118,8 @@ class VisibleContractTests(unittest.TestCase):
                     domain = [100, .1] if reverse else [.1, 100]
                     cfg['_render_axes'] = {axis + 'scale': 'log', axis + 'lim': domain}
                     full, target, _ = build_pair(kind, cfg)
-                    self.assertNotIn("reverse", target["encoding"][axis].get("scale", {}))
-                    cases.extend((kind, axis, direction, spec) for direction, spec in ((reverse, full), (False, render_spec(target))))
+                    self.assertEqual(target["encoding"][axis].get("scale", {}).get("reverse", False), reverse and kind.startswith("line") and axis == "x")
+                    cases.extend((kind, axis, direction, spec) for direction, spec in ((reverse, full), (reverse and kind.startswith("line") and axis == "x", render_spec(target))))
         for case, result in zip(cases, render_specs([case[3] for case in cases])):
             kind, axis, reverse, _ = case
             with self.subTest(kind=kind, axis=axis, reverse=reverse):

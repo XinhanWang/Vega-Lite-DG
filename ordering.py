@@ -2,45 +2,54 @@
 
 Stable source IDs and point indices remain untouched. Only the table sequence
 changes: horizontal categories run top-to-bottom; other categories and numeric
-positions run left-to-right. Stack/scatter ties run top-to-bottom; line ties
-retain the stable series order, which also determines the legend.
+positions run left-to-right. Stacks run bottom-to-top (vertical) or left-to-right
+(horizontal); scatter ties run top-to-bottom. Lines retain each series' actual
+path; the spatial scan provides only the inter-series slots and legend order.
 """
 from __future__ import annotations
 
 
 def visual_rows(kind: str, rows: list[dict], *, x_reverse: bool = False,
                 y_reverse: bool = False) -> list[dict]:
-    """Return a new row list in screen reading order, without changing rows."""
+    """Return canonical rows, keeping line adjacency and source records intact."""
     x_direction = -1 if x_reverse else 1
     y_direction = 1 if y_reverse else -1
 
     def key(row: dict) -> tuple:
         stable = (row.get("series_index", 0), row.get("point_index", 0), row.get("row_index", 0))
         if kind.startswith("barh"):
-            return (y_direction * row["category_position"],
-                    y_direction * row["plot_category"], *stable)
+            inner = (x_direction * (row["value_lower"] + row["value_upper"]) / 2
+                     if kind == "barh_stack" else y_direction * row["plot_category"])
+            return (y_direction * row["category_position"], inner, *stable)
         if kind.startswith("barv"):
-            inner = (y_direction * (row["value_lower"] + row["value_upper"]) / 2
+            inner = (-y_direction * (row["value_lower"] + row["value_upper"]) / 2
                      if kind == "barv_stack" else x_direction * row["plot_category"])
             return (x_direction * row["category_position"], inner, *stable)
         if kind.startswith("line"):
             return (x_direction * row["plot_x"], *stable)
         return (x_direction * row["plot_x"], y_direction * row["plot_y"], *stable)
 
-    return sorted(rows, key=key)
+    visible = sorted(rows, key=key)
+    if kind.startswith("line"):
+        paths = {key: iter(sorted((r for r in rows if r["series_id"] == key), key=lambda r: r["point_index"]))
+                 for key in first_seen(visible, "series_id")}
+        return [next(paths[r["series_id"]]) for r in visible]
+    return visible
 
 
 def first_seen(rows: list[dict], field: str) -> list:
     return list(dict.fromkeys(row[field] for row in rows))
 
 
-def needs_path_order(rows: list[dict]) -> bool:
-    """A line may be reversed safely, but must not acquire different edges."""
-    paths: dict[str, list[int]] = {}
+def needs_path_order(rows: list[dict], *, x_reverse: bool = False) -> bool:
+    """Only a strict screen-X retreat within a real series needs a rank."""
+    last = {}
     for row in rows:
-        paths.setdefault(row["series_id"], []).append(row["point_index"])
-    return any(path != sorted(path) and path != sorted(path, reverse=True)
-               for path in paths.values())
+        key, x = row["series_id"], row["plot_x"] * (-1 if x_reverse else 1)
+        if key in last and x < last[key]:
+            return True
+        last[key] = x
+    return False
 
 
 def needs_stack_endpoints(rows: list[dict]) -> bool:
