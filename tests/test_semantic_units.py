@@ -27,7 +27,7 @@ class SemanticUnitTests(unittest.TestCase):
         target = normalize(full)
         self.assertEqual(target['encoding']['theta'],
                          {'field': 'value', 'type': 'quantitative', 'title': 'Share (%)'})
-        self.assertEqual(target['data']['values'][0]['value'], 54)
+        self.assertEqual(target['data']['values'][0]['value'], .54)
         self.assertNotIn('format', str(target['encoding']['theta']))
         self.assertEqual(full, before)
         self.assert_fidelity(full, target)

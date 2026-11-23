@@ -15,7 +15,7 @@ and `legend_position` (`left`, `right`, `top`, `bottom`).
 | `pie` | `family`: balanced/dominant/long_tail/bimodal; `donut`: boolean; `value_mode`: percent/absolute; `label_mode`: legend_value/value/category_value |
 | `boxplot` | `family`: normal/uniform/skewed/bimodal/heavy_tail; `orientation`: horizontal/vertical; `outlier_mode`: none/natural/injected |
 
-Pie percentages sum to exactly 100. Absolute values are displayed in the full
+Visible percentage labels sum to 100%. The corresponding numeric proportions sum to 1. Absolute values are displayed in the full
 chart; percentage targets never encode a hidden original total. Category names
 and values remain observable through labels or legends.
 
@@ -32,7 +32,7 @@ kept separately. Audit observations stay in config.json, never in training GT.
 
 - Both targets copy their semantic columns directly from Full `data.values`.
   Record order, category/value associations, number representations and outlier
-  array order are preserved exactly. Extraction does not normalize precision,
+  point order are preserved exactly. Extraction does not normalize precision,
   sort records or recompute statistics; generation-time numeric cleanup is unchanged.
 - Pie: `category/value`, one `arc` mark. Theta contains `field`, `type` and the
   scientific title explicitly present in Full, e.g. `Share (%)`;
@@ -41,12 +41,10 @@ kept separately. Audit observations stay in config.json, never in training GT.
   order encoding, row-number/window transform, explicit stack or color sorting.
   the actual scientific chart title is retained too. Donut hole, rotation,
   labels and presentation stay in Full. Explicit units are scientific semantics,
-  not removable styling. Values 54/46 remain 54/46; a percent title does not add
-  a percent formatter, which would incorrectly display 5400%/4600%. An absolute
-  chart totaling 100 does not acquire percent semantics.
+  not removable styling. Labels `54%` and `46%` are stored as `0.54` and `0.46`. When only the title contains `%` and numeric labels read `54` and `46`, those labels retain their units.
   Compact rendering may change sector/legend order; it must retain the correct
   category/value mapping and proportions, not reproduce Full's appearance.
-- Box: `category/lower/q1/median/q3/upper/outliers`. Exactly four layers draw
+- Box: the summary table contains `category/lower/q1/median/q3/upper`. A separate `category/value` table stores one row per outlier. Exactly four layers draw
   whiskers (`rule`), boxes (`bar`), medians (`tick`) and outliers (`point`).
   Category order follows the table. The top encoding contains only the category
   axis, retaining any explicit scientific category-axis title; each layer defines
@@ -57,10 +55,9 @@ kept separately. Audit observations stay in config.json, never in training GT.
   Vega-Lite Schema forbids `type` on secondary field definitions. The shared
   numeric scale uses Vega-Lite defaults; no scale, zero policy, filled switch or
   tick orientation is stored in the GT.
-  A single `flatten:["outliers"]` uses the original field without an alias or
-  redundant validity filter. Empty outlier arrays require no dummy points.
+  The point layer directly reads its own inline `data.values`. Empty groups contribute zero rows.
   Vega's empty-layer extent warning is retained as an expected diagnostic only
-  when every outlier array is empty; other warnings still require review.
+  when the outlier table is empty. Other warnings require review.
   Default mark appearance may differ from Full; no sampled font, color or size
   enters compact. Full's drawing logic and statistical calculations are unchanged.
 - Full and compact use identical scientific data. The bounded

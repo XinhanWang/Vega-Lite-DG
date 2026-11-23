@@ -92,17 +92,19 @@ def validate(out):
                 from workflow.migration import audit_copied_artifacts
                 errors.extend(audit_copied_artifacts(sample))
             source = read(sample / 'source.json')
-            if full['data']['values'] != source['rows']:
+            source_table = project_rows(full) if row['kind'] in {'pie', 'boxplot'} else full['data']['values']
+            if source_table != source['rows']:
                 errors.append('Vega-Lite observation table differs from source rows')
             statistical = row['kind'] in {'pie', 'boxplot'}
             if statistical:
                 from .statistical_validation import validate_statistics, audit_geometry
-                errors.extend(validate_statistics(row['kind'], read(sample / 'config.json'), source['rows']))
+                from statistical import outlier_rows
+                errors.extend(validate_statistics(row['kind'], read(sample / 'config.json'), source['rows'], outlier_rows(full)))
             text_audit = audit_text(full, (sample / 'chart.svg').read_text(encoding='utf-8'))
             dump(sample / 'text-audit.json', text_audit)
             errors.extend('full text: ' + message for message in text_audit['errors'])
-            rows_by_id = {r['row_id']: r for r in source['rows']}
-            if len(rows_by_id) != len(source['rows']):
+            rows_by_id = {} if statistical else {r['row_id']: r for r in source['rows']}
+            if not statistical and len(rows_by_id) != len(source['rows']):
                 errors.append('Duplicate source row_id')
             target_side = run_metadata['config']['target_side']
             image_files = ['chart.png', f'chart.{target_side}.png']
@@ -123,7 +125,7 @@ def validate(out):
                         errors.append(f'{variant}: geometry/image dimensions differ')
                 mark_names = {m['mark_id']: m.get('name', '') for m in geometry['marks']}
                 observations = [e for e in geometry['elements'] if e.get('role') != 'decoration' and e.get('datum')]
-                if variant == 'full':
+                if variant == 'full' and not statistical:
                     observations = [e for e in observations if e['datum'].get('row_id') is not None]
                     if {e['datum']['row_id'] for e in observations} != set(rows_by_id):
                         errors.append('full: source row/geometry coverage mismatch')

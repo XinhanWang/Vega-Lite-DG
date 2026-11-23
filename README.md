@@ -45,8 +45,11 @@ python3 pipeline.py validate --output runs/my_smoke
 服务器 Node 位于父目录 `.runtime/node` 时，管线会自动使用它；也可以传 `--node /path/to/node`。在新环境安装旧版 PyYAML 5.4.1 如需源码构建，应准备相应编译依赖；已部署环境可直接复用。
 
 ```sh
-# 九类各 50 个候选；接受数量以 validation.json 为准
+# ChartArena 数值图原生模板，每个模板 50 个候选；接受数量以 validation.json 为准
 python3 pipeline.py generate --config configs/production.json --output runs/my_production
+
+# 原 VSR 配置，保留原种子、采样设置和图表类型
+python3 pipeline.py generate --config configs/production_vsr.json --output runs/my_vsr
 
 # 相同版本、相同配置的断点恢复
 python3 pipeline.py generate --config configs/production.json --output runs/my_production --resume
@@ -54,6 +57,21 @@ python3 pipeline.py generate --config configs/production.json --output runs/my_p
 # 用历史运行保存的采样数据重新构建当前规格与图像
 python3 pipeline.py reproject --source runs/old_run --output runs/reprojected
 ```
+
+ChartArena 的无后缀配置面向数值图的数字渲染场景。柱图和折线图复用当前数值采样器，
+并用清晰的显示风格和离散时间/类别标签。饼图和箱线图由原生统计模板生成。雷达和柱线
+复合图使用已同步的 Studio 和共享径向尺度雷达 adapter，每类各 50 张：
+
+```sh
+../.runtime/node generate_chartarena_extensions.mjs configs/chartarena-extensions.json \
+  runs/my_chartarena_extensions ../Chart-Annotation-Studio /path/to/chart_gt_adapter_checkout
+```
+
+雷达的 Full 使用 Vega，Compact 使用带 `usermeta.chartType` 的 Vega-Lite 语义代理。
+柱线复合图使用 Studio 的独立柱、线表，包含共享 Y 与独立双 Y。
+这些配置用于合成数字图像，未覆盖 ChartArena 的打印照片、手绘照片、流程图和思维导图。
+
+每张训练图在 `compact.vl.json` 的 `usermeta.table_export.tables` 列出表 ID 和 JSON Pointer。共享转换器按这些路径分别写出 `<id>.md` 和 `<id>.csv`，保留轴标题替换。独立库及固定提交见 `vendor/vega-lite-table-export/UPSTREAM`。图中百分数存小数，仅标题含 `%` 时保留数值刻度原值。箱线图将五数统计和每个离群点分别存表，Full 和 Compact 均不写显式 `transform`。
 
 新运行必须使用空目录。不要在同一输出目录并发运行。`--resume` 会检查生成器版本、GT 合约和配置指纹，防止混合不同语义的样本。历史版本需用 `reproject` 写入新目录；它读取已保存的 `config.json` 与可选展示快照，不重新采样。
 

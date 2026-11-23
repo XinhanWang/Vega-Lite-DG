@@ -27,7 +27,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n", "barh_stack",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -404,19 +404,17 @@ def _marker_properties(marker: Any, size: float) -> dict:
             "size": float(size) * (0.25 if marker == "." else 1)}
 
 
-def _marker_filter(selection: Any, n: int) -> dict | None:
+def _marker_rows(rows, selection, count):
     if selection is None:
-        return None
-    if isinstance(selection, int):
-        if selection < 1:
-            raise ValueError("markevery must be positive")
-        return {"filter": f"datum.point_index % {selection} === 0"}
+        return rows
+    if isinstance(selection, int) and selection > 0:
+        return [row for row in rows if row["point_index"] % selection == 0]
     if isinstance(selection, list):
-        indices = [int(i) if int(i) >= 0 else n + int(i) for i in selection]
-        if any(i < 0 or i >= n for i in indices):
+        indices = {i if i >= 0 else count + i for i in selection}
+        if any(i < 0 or i >= count for i in indices):
             raise ValueError("markevery index is outside the line")
-        return {"filter": {"field": "point_index", "oneOf": indices}}
-    raise ValueError("VSR uses integer markevery; distance-based Matplotlib sampling is unsupported")
+        return [row for row in rows if row["point_index"] in indices]
+    raise ValueError("markevery requires a positive stride or a list of indices")
 
 
 def _xy(cfg: dict, kind: str, limits: dict, x: str, y: str) -> dict:
@@ -426,7 +424,8 @@ def _xy(cfg: dict, kind: str, limits: dict, x: str, y: str) -> dict:
 def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limits: dict) -> list[dict]:
     layers: list[dict] = []
     for s, _ in enumerate(names):
-        selected = [{"filter": {"field": "series_id", "equal": f"s{s:03d}"}}]
+        selected = [row for row in rows if row["series_index"] == s]
+        data = {"data": {"values": selected}} if len(names) > 1 else {}
         color = _color(kind, cfg, names)
         opacity = _at(cfg, "alphas", "alpha", s, 1)
         if kind.startswith("bar"):
@@ -438,7 +437,7 @@ def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limit
             mark = {"type": "bar", "clip": True, "opacity": opacity,
                     "stroke": _at(cfg, "edgecolors", "edgecolor", s, _palette(cfg, names)[s]),
                     "strokeWidth": _at(cfg, "linewidths", "linewidth", s, 1)}
-            layers.append({"name": f"bars_{s}", "transform": selected, "mark": mark, "encoding": enc})
+            layers.append({"name": f"bars_{s}", **data, "mark": mark, "encoding": enc})
             if any(r["series_index"] == s and "error_lower" in r for r in rows):
                 horizontal = kind.startswith("barh")
                 err = _xy(cfg, kind, limits, "error_lower" if horizontal else "plot_category",
@@ -446,13 +445,13 @@ def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limit
                 err["x2" if horizontal else "y2"] = {"field": "error_upper"}
                 edge = cfg.get("ecolor", cfg.get("style", {}).get("text_color", "#222222"))
                 error_style = cfg.get("error_kw") or {}
-                layers.append({"name": f"error_interval_{s}", "transform": copy.deepcopy(selected),
+                layers.append({"name": f"error_interval_{s}", **data,
                                "mark": {"type": "rule", "clip": True, "color": edge,
                                         "strokeWidth": error_style.get("elinewidth", 1)}, "encoding": err})
                 for end in ("error_lower", "error_upper"):
                     caps = _xy(cfg, kind, limits, end if horizontal else "plot_category",
                                "plot_category" if horizontal else end)
-                    layers.append({"name": f"{end}_cap_{s}", "transform": copy.deepcopy(selected),
+                    layers.append({"name": f"{end}_cap_{s}", **data,
                                    "mark": {"type": "tick", "orient": "vertical" if horizontal else "horizontal",
                                             "clip": True, "color": edge, "size": 2 * (cfg.get("capsize") or 3),
                                             "thickness": error_style.get("capthick", 1)}, "encoding": caps})
@@ -464,7 +463,7 @@ def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limit
             if line_style not in {None, "None", "none", "", " "}:
                 if line_style not in _DASHES:
                     raise ValueError(f"Unsupported line style: {line_style}")
-                layers.append({"name": f"line_{s}", "transform": copy.deepcopy(selected),
+                layers.append({"name": f"line_{s}", **data,
                                "mark": {"type": "line", "clip": True, "opacity": opacity,
                                         "strokeWidth": _at(cfg, "widths", "linewidth", s, 1.8),
                                         "strokeDash": _DASHES[line_style]}, "encoding": enc})
@@ -476,8 +475,9 @@ def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limit
                 point_enc = copy.deepcopy(enc)
                 point_enc.pop("order", None)
                 point_enc["detail"] = {"field": "row_id", "type": "nominal"}
-                sample = _marker_filter(_at(cfg, "markevery", "markevery_value", s, None), len(cfg["x_labels"]))
-                layers.append({"name": f"line_markers_{s}", "transform": copy.deepcopy(selected) + ([sample] if sample else []),
+                markers = _marker_rows(selected, _at(cfg, "markevery", "markevery_value", s, None), len(cfg["x_labels"]))
+                marker_data = data if markers == selected else {"data": {"values": markers}}
+                layers.append({"name": f"line_markers_{s}", **marker_data,
                                "mark": mark, "encoding": point_enc})
         else:
             marker = _at(cfg, "markers", "marker", s, "o")
@@ -491,7 +491,7 @@ def _main_layers(kind: str, cfg: dict, rows: list[dict], names: list[str], limit
                 mark["stroke"] = None if edge == "none" else edge
             enc = _xy(cfg, kind, limits, "plot_x", "plot_y")
             enc.update(color=color, detail={"field": "row_id", "type": "nominal"})
-            layers.append({"name": f"scatter_{s}", "transform": selected, "mark": mark, "encoding": enc})
+            layers.append({"name": f"scatter_{s}", **data, "mark": mark, "encoding": enc})
     return layers
 
 
@@ -743,7 +743,8 @@ def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     source['presentation'] = copy.deepcopy(full['usermeta']['presentation'])
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     full['usermeta']['plot_layout']['final_plot_size'] = [full['width'], full['height']]
-    full = format_spec(full)
+    from table_metadata import attach_tables
+    full = format_spec(attach_tables(full, kind))
     compact = normalize(full)
     source['training_contract'] = 'compact-v4: semantic values, identities, variables, relations and necessary order; presentation exists only in full/preview'
     return full, compact, source

@@ -6,10 +6,16 @@ from decimal import Decimal
 from generation.summaries import canonical_numbers, tukey_summary
 
 
-def validate_statistics(kind, cfg, rows):
+def validate_statistics(kind, cfg, rows, outliers=None):
     errors = []
     clean_rows = [{key: value for key, value in row.items() if key != "row_id"} for row in rows]
-    if clean_rows != canonical_numbers(cfg["rows"]):
+    if kind == "boxplot" and outliers is not None:
+        for row in clean_rows:
+            row["outliers"] = [point["value"] for point in outliers if point["category"] == row["category"]]
+    expected_rows = canonical_numbers(cfg["rows"])
+    if kind == "pie" and cfg["value_mode"] == "percent":
+        expected_rows = [dict(row, value=float(Decimal(str(row["value"])) / 100)) for row in expected_rows]
+    if clean_rows != expected_rows:
         errors.append("Statistical table differs from sampled statistics")
     if [row["category"] for row in rows] != cfg["categories"] or len(set(cfg["categories"])) != len(rows):
         errors.append("Category identity/order mismatch")
@@ -17,12 +23,12 @@ def validate_statistics(kind, cfg, rows):
         values = [row["value"] for row in rows]
         if not all(math.isfinite(value) and value > 0 for value in values):
             errors.append("Pie values must be finite and positive")
-        if cfg["value_mode"] == "percent" and sum(values) != 100:
-            errors.append("Percentage pie must sum to 100")
+        if cfg["value_mode"] == "percent" and not math.isclose(sum(values), 1):
+            errors.append("Percentage pie must sum to 1")
     else:
         if len(rows) != len(cfg["observations"]):
             errors.append("Summary/observation audit group count mismatch")
-        for row, observations in zip(rows, cfg["observations"]):
+        for row, observations in zip(clean_rows, cfg["observations"]):
             expected = tukey_summary(observations)
             if any(row[field] != expected[field] for field in expected):
                 errors.append("Summary differs from independently recomputed Tukey statistics")
@@ -50,12 +56,12 @@ def audit_geometry(kind, cfg, spec, geometry):
     rows = spec["data"]["values"]
     categories = [row["category"] for row in rows]
     rows_by_category = {row["category"]: row for row in rows}
-    flattened_marks = {element["mark_id"] for element in elements("outliers_")} if compact and kind == "boxplot" else set()
+    flattened_marks = {element["mark_id"] for element in elements("outliers_")} if kind == "boxplot" else set()
     for element in geometry["elements"]:
         datum = element.get("datum") or {}
         original = rows_by_category.get(datum.get("category"))
         flattened = element["mark_id"] in flattened_marks
-        if original is not None and any(datum.get(key) != value for key, value in original.items()
+        if original is not None and not flattened and any(datum.get(key) != value for key, value in original.items()
                                         if not (flattened and key == "outliers")):
             errors.append("Rendered statistical datum differs from the input table")
             break
@@ -66,7 +72,7 @@ def audit_geometry(kind, cfg, spec, geometry):
         legend = [str(item["text"]) for item in geometry["texts"] if item.get("role") == "legend-label"]
         expected_legend = categories
         if kind == "pie" and not compact and cfg["label_mode"] == "legend_value":
-            expected_legend = [row["category"] + ": " + f'{row["value"]:g}' + ("%" if cfg["value_mode"] == "percent" else "") for row in rows]
+            expected_legend = [row["category"] + ": " + (format(row["value"], ".0%") if cfg["value_mode"] == "percent" else format(row["value"], "g")) for row in rows]
         legend_matches = collections.Counter(legend) == collections.Counter(expected_legend) if compact else legend == expected_legend
         if not legend_matches:
             errors.append("Rendered legend labels/order differ from data.values")
@@ -90,7 +96,7 @@ def audit_geometry(kind, cfg, spec, geometry):
             if abs(arc["innerRadius"] - expected_inner) > 1e-7:
                 errors.append("Pie/donut hole mismatch")
             angle += extent
-            number = f'{row["value"]:g}' + ("%" if cfg["value_mode"] == "percent" else "")
+            number = (format(row["value"], ".0%") if cfg["value_mode"] == "percent" else format(row["value"], "g"))
             expected_text = number if cfg["label_mode"] == "value" else row["category"] + ": " + number
             if not compact and expected_text not in text:
                 errors.append("Visible pie value/category label missing: " + expected_text)
@@ -138,8 +144,9 @@ def audit_geometry(kind, cfg, spec, geometry):
                     actual = element["center"][axis_index]
                 if abs(actual - expected) > 1e-5:
                     errors.append("Rendered statistic position mismatch: " + field)
-        expected = collections.Counter((row["category"], value) for row in rows for value in row["outliers"])
-        outlier_field = "outliers" if compact else "outlier"
+        from statistical import outlier_rows
+        expected = collections.Counter((point["category"], point["value"]) for point in outlier_rows(spec))
+        outlier_field = "value"
         actual = collections.Counter((element["datum"]["category"], element["datum"][outlier_field]) for element in elements("outliers_"))
         if expected != actual:
             errors.append("Outlier point coverage/multiplicity mismatch")

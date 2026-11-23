@@ -1,25 +1,35 @@
 {
-  "seed": 20261109,
+  "seed": 20261125,
   "counts": {
     "barh_1": 1,
     "barh_n": 1,
     "barv_1": 1,
     "barv_n": 1,
     "barv_stack": 1,
+    "barh_stack": 1,
     "line_1": 1,
     "line_n": 1,
-    "scatter_1": 1,
-    "scatter_n": 1,
-    "barh_stack": 1
+    "pie": 1,
+    "boxplot": 1
   },
   "controls": {
+    "all": {
+      "profile": "publication_clean"
+    },
     "barv_stack": {
       "stack_mode": "absolute"
     },
     "barh_stack": {
       "stack_mode": "absolute"
+    },
+    "line_1": {
+      "x_mode": "temporal"
+    },
+    "line_n": {
+      "x_mode": "categorical"
     }
   },
   "workers": 2,
-  "target_side": 1036
+  "target_side": 1036,
+  "notes": "Synthetic digital ChartArena-family configurations for supported bar, line, pie and boxplot templates. Bar/line reuse the VSR samplers with clean readable styling. Radar, combination, flowchart and mind map have no native DG template."
 }

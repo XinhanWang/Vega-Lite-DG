@@ -19,9 +19,8 @@ from render_support import render_specs
 class StatisticalTests(unittest.TestCase):
     def assert_render_warnings(self, spec, result):
         layers = spec.get('layer', [])
-        empty = (len(layers) == 4 and layers[-1].get('transform') == [{'flatten': ['outliers']}]
-                 and all(not row['outliers'] for row in spec['data']['values']))
-        expected = ['Infinite extent for field "outliers": [Infinity, -Infinity]'] if empty else []
+        empty = any(layer.get('mark', {}).get('type') == 'point' and layer.get('data', {}).get('values') == [] for layer in layers)
+        expected = ['Infinite extent for field "value": [Infinity, -Infinity]'] if empty else []
         self.assertEqual(result['warnings'], expected)
 
     def test_box_compact_has_explicit_numeric_types_and_inferred_domain(self):
@@ -34,8 +33,8 @@ class StatisticalTests(unittest.TestCase):
                 self.assertEqual([layer['mark']['type'] for layer in target['layer']], ['rule', 'bar', 'tick', 'point'])
                 self.assertTrue(all(set(layer['mark']) == {'type'} for layer in target['layer']))
                 self.assertEqual(target['layer'][0]['encoding'][axis]['title'], cfg['value_title'])
-                self.assertEqual(target['layer'][3]['transform'], [{'flatten': ['outliers']}])
-                self.assertEqual(target['layer'][3]['encoding'][axis]['field'], 'outliers')
+                self.assertNotIn('transform', target['layer'][3])
+                self.assertEqual(target['layer'][3]['encoding'][axis]['field'], 'value')
                 for layer in target['layer']:
                     for channel, encoding in layer.get('encoding', {}).items():
                         self.assertIn(channel, (axis, axis + '2'))
@@ -138,8 +137,8 @@ class StatisticalTests(unittest.TestCase):
                     self.assertEqual(normalize(full), target)
                     self.assertEqual(normalize(target), target)
                     self.assertEqual(project_rows(full), semantic_rows(target))
-                    self.assertEqual(validate_statistics(kind, cfg, source['rows']), [])
-                    expected = {'category', 'value'} if kind == 'pie' else {'category', 'lower', 'q1', 'median', 'q3', 'upper', 'outliers'}
+                    self.assertEqual(validate_statistics(kind, cfg, source['rows'], target['layer'][3]['data']['values'] if kind == 'boxplot' else None), [])
+                    expected = {'category', 'value'} if kind == 'pie' else {'category', 'lower', 'q1', 'median', 'q3', 'upper'}
                     self.assertTrue(all(set(row) == expected for row in target['data']['values']))
                     self.assertNotIn('observations', json.dumps(target))
                     self.assertNotIn('row_id', json.dumps(target))
@@ -150,7 +149,7 @@ class StatisticalTests(unittest.TestCase):
                 cfg = sample_config('pie', 81, {'category_count': count, 'family': family, 'value_mode': 'percent'})
                 full, target, source = build_pair('pie', cfg)
                 self.assertEqual(sum(row['value'] for row in cfg['rows']), 100)
-                self.assertEqual(target['data']['values'], cfg['rows'])
+                self.assertEqual(target['data']['values'], [dict(row, value=row['value'] / 100) for row in cfg['rows']])
                 self.assertEqual(target['encoding'], {'theta': {'field': 'value', 'type': 'quantitative', 'title': full['encoding']['theta']['title']},
                                                       'color': {'field': 'category', 'type': 'nominal'}})
                 self.assertNotIn('transform', target)
@@ -164,7 +163,7 @@ class StatisticalTests(unittest.TestCase):
                 for family in FAMILIES['boxplot']:
                     cfg = sample_config('boxplot', 42, {'orientation': orientation, 'outlier_mode': mode, 'family': family})
                     full, target, source = build_pair('boxplot', cfg)
-                    self.assertEqual(validate_statistics('boxplot', cfg, source['rows']), [])
+                    self.assertEqual(validate_statistics('boxplot', cfg, source['rows'], target['layer'][3]['data']['values']), [])
                     self.assertEqual(len(target['layer']), 4)
                     category_axis = 'y' if orientation == 'horizontal' else 'x'
                     self.assertEqual(target['encoding'][category_axis]['field'], 'category')
@@ -191,7 +190,7 @@ class StatisticalTests(unittest.TestCase):
     def test_compact_has_no_sampled_visual_settings_or_duplicate_order_arrays(self):
         forbidden = {'width', 'height', 'font', 'fontSize', 'fontWeight', 'background', 'grid', 'strokeWidth',
                      'size', 'thickness', 'radius', 'innerRadius', 'outerRadius', 'name', 'labelExpr', 'calculate',
-                     'range', 'scheme', 'config', 'usermeta', 'filled', 'orient', 'scale'}
+                     'range', 'scheme', 'config', 'transform', 'filled', 'orient', 'scale'}
         def check(node):
             if isinstance(node, dict):
                 self.assertFalse(forbidden & node.keys())
@@ -225,20 +224,24 @@ class StatisticalTests(unittest.TestCase):
             self.assertEqual(cfg['rows'], canonical_numbers(cfg['rows']))
             full, target, source = build_pair(kind, cfg)
             self.assertEqual(project_rows(full), target['data']['values'])
-            self.assertEqual(target['data']['values'], cfg['rows'])
+            self.assertEqual(validate_statistics(kind, cfg, target['data']['values'], target['layer'][3]['data']['values'] if kind == 'boxplot' else None), [])
 
     def test_full_projection_preserves_exact_precision_outlier_order_and_input(self):
         cfg = sample_config('boxplot', 42, {'outlier_mode': 'injected'})
         full, target, source = build_pair('boxplot', cfg)
         full['data']['values'][0].update(lower=.1, q1=.30000000000000004, median=.5, q3=.7,
-                                       upper=.9, outliers=[1.9999999999999998, -1.0000000000000002])
+                                       upper=.9)
+        points = full['layer'][-1]['data']['values']
+        category = full['data']['values'][0]['category']
+        points[:] = [dict(category=category, value=value) for value in (1.9999999999999998, -1.0000000000000002)] + [p for p in points if p['category'] != category]
         original = copy.deepcopy(full)
         target = normalize(full)
         self.assertEqual(full, original)
         self.assertEqual(project_rows(full), semantic_rows(target))
         expected = [{key: value for key, value in row.items() if key != 'row_id'} for row in original['data']['values']]
         self.assertEqual(json.dumps(target['data']['values']), json.dumps(expected))
-        target['data']['values'][0]['outliers'].append(100)
+        self.assertEqual(target['layer'][-1]['data']['values'], points)
+        target['layer'][-1]['data']['values'][0]['value'] = 100
         self.assertEqual(full, original)
 
     def test_pie_projection_drops_order_helpers_without_rewriting_observations(self):
@@ -278,7 +281,7 @@ class StatisticalTests(unittest.TestCase):
             if kind == 'pie':
                 arcs = [mark for mark in result['marks'] if mark['marktype'] == 'arc']
                 self.assertCountEqual([mark['datum']['category'] for mark in arcs], cfg['categories'])
-                values = {row['category']: row['value'] for row in cfg['rows']}
+                values = {row['category']: row['value'] for row in spec['data']['values']}
                 for mark in arcs:
                     datum = mark['datum']
                     self.assertAlmostEqual(datum['value_end'] - datum['value_start'], values[datum['category']])
@@ -305,8 +308,8 @@ class StatisticalTests(unittest.TestCase):
         geometry = {'marks': [{'mark_id': 'arcs', 'name': 'marks'}], 'elements': [],
                     'texts': [{'role': 'legend-label', 'text': row['category']} for row in cfg['rows']]}
         angle = 0
-        for row in cfg['rows']:
-            end = angle + row['value'] * 2 * 3.141592653589793 / 100
+        for row in target['data']['values']:
+            end = angle + row['value'] * 2 * 3.141592653589793
             geometry['elements'].append({'mark_id': 'arcs', 'mark_type': 'arc', 'datum': copy.deepcopy(row),
                                          'arc': {'startAngle': angle, 'endAngle': end, 'innerRadius': 0}})
             angle = end

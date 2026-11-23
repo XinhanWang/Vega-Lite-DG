@@ -559,7 +559,7 @@ async function renderVariant(job, variant, runtime, options) {
     result.font_embedding={...fontResult.audit, source_archives:Object.fromEntries(Object.entries(fontResult.audit.source_archives || {}).map(([key,value])=>[key,{...value,base64:undefined}]))};
     const raster = await runtime.rasterize(canvas.svg);
     if (raster.width !== canvas.width || raster.height !== canvas.height) throw new Error('PNG dimensions differ from the explicit integer SVG viewport');
-    const kind = spec.usermeta?.semantic?.kind || ((spec.mark === 'arc' || spec.mark?.type === 'arc' || spec.layer?.some(layer => layer.name === 'sectors')) ? 'pie' : (spec.layer?.some(layer => layer.name === 'boxes') || Array.isArray(spec.data?.values?.[0]?.outliers)) ? 'boxplot' : null);
+    const kind = spec.usermeta?.semantic?.kind || ((spec.mark === 'arc' || spec.mark?.type === 'arc' || spec.layer?.some(layer => layer.name === 'sectors')) ? 'pie' : (spec.layer?.some(layer => layer.name === 'boxes') || Object.hasOwn(spec.data?.values?.[0] ?? {}, "q1")) ? 'boxplot' : null);
     const geometry = collectGeometry(view, canvas, {id: job.id, variant, kind, image: `${stem}.png`});
     const validation = geometry.validation;
     if (!validation.element_count) errors.push('No data-mark geometry was rendered.');
@@ -593,13 +593,11 @@ async function renderVariant(job, variant, runtime, options) {
       atomicWrite(files.resized_geometry, jsonText(mapped));
       result.resize = {...transform, png_sha256: sha256(resized.png), validation: mapped.validation};
     }
-    // An empty flattened outlier layer has no extent of its own. Other layers
-    // still determine the shared scale; keep this diagnostic without rejecting
-    // a valid no-outlier box plot or inventing a point/domain in the target.
-    const emptyOutliers = variant === 'compact' && kind === 'boxplot'
-      && spec.layer?.[3]?.transform?.some(t => t.flatten?.includes('outliers'))
-      && spec.data.values.every(row => Array.isArray(row.outliers) && row.outliers.length === 0);
-    const expectedWarnings = emptyOutliers ? warnings.filter(message => message === 'Infinite extent for field "outliers": [Infinity, -Infinity]') : [];
+    // An empty point table has no independent extent. The five-number table
+    // determines the shared quantitative scale for this valid box plot.
+    const emptyOutliers = kind === 'boxplot' && spec.layer?.some(layer =>
+      layer.mark?.type === 'point' && layer.data?.values?.length === 0);
+    const expectedWarnings = emptyOutliers ? warnings.filter(message => message === 'Infinite extent for field "value": [Infinity, -Infinity]') : [];
     if (expectedWarnings.length) result.expected_warnings = expectedWarnings;
     result.status = errors.length ? 'rejected' : warnings.some(message => !expectedWarnings.includes(message)) ? 'review_required' : 'rendered';
   } catch (error) {

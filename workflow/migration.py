@@ -96,7 +96,7 @@ def migrate_compact(args):
         hashes = {}
         for source_file in source_dir.iterdir():
             name = source_file.name
-            if name.startswith('compact.') or name in {'compact.png', 'compact-migration.json', 'record.json', 'render-record.json'}:
+            if name.startswith('compact.') or name.endswith(('.md', '.csv')) or name in {'compact.png', 'compact-migration.json', 'record.json', 'render-record.json'}:
                 continue
             if source_file.is_symlink() or not source_file.is_file():
                 raise ValueError('Unexpected source artifact: ' + str(source_file))
@@ -130,6 +130,8 @@ def migrate_compact(args):
         'source_report_sha256': file_hash(origin / 'render-report.json'),
         'total': len(generated), 'processed': len(generated), 'rendered': len(generated),
         'review_required': 0, 'rejected': 0, 'records': render_records})
+    from pipeline import export_training_tables
+    export_training_tables([str(out / row['sample']) for row in generated], getattr(args, 'node', None))
     summary = validate(out)
     if summary['rejected']:
         raise SystemExit(1)

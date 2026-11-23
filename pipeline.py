@@ -17,7 +17,7 @@ from workflow.io import canonical, digest, dump, jsonl, read
 from workflow.validation import validate
 
 
-def write_render_jobs(out, records):
+def write_render_jobs(out, records, node=None):
     jobs = [{'id': row['id'], 'full': str(out / row['sample'] / 'full.vl.json'),
              'compact': str(out / row['sample'] / 'compact.preview.vl.json'), 'output': str(out / row['sample'])}
             for row in records if row['status'] == 'generated']
@@ -27,12 +27,20 @@ def write_render_jobs(out, records):
         if row['status'] == 'generated':
             sample = out / row['sample']
             dump(sample / 'compact.preview.vl.json', render_spec(read(sample / 'compact.vl.json')))
+    export_training_tables([job['output'] for job in jobs], node)
     dump(out / 'render-jobs.json', jobs)
     return jobs
 
 
+def export_training_tables(directories, node=None):
+    default_node = ROOT.parent / '.runtime/node'
+    node = node or (str(default_node) if default_node.is_file() else 'node')
+    subprocess.run([node, str(ROOT / 'export_tables.mjs')],
+                   input=json.dumps(directories), text=True, check=True)
+
+
 def render_records(out, records, target_side, node=None):
-    write_render_jobs(out, records)
+    write_render_jobs(out, records, node)
     node = node or str(ROOT.parent / '.runtime/node')
     if not Path(node).exists():
         node = shutil.which('node') or node

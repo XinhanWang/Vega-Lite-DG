@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from generation.summaries import canonical_numbers
 from spec_format import format_spec
+from table_metadata import attach_tables
 
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
 
@@ -21,18 +22,18 @@ def _spec(kind, rows, options):
         radius = size * .34
         inner = radius * options["hole_ratio"] if options["donut"] else 0
         percentage = options["value_mode"] == "percent"
-        suffix = " + '%'" if percentage else ""
-        number = "format(datum.value, '~g')" + suffix
+        number = "format(datum.value, '.0%')" if percentage else "format(datum.value, '~g')"
         label_mode = options["label_mode"]
         if label_mode == "legend_value" and color["legend"] is not None:
-            labels = {row["category"]: f'{row["category"]}: {row["value"]:g}' + ("%" if percentage else "") for row in rows}
+            labels = {row["category"]: row["category"] + ": " + (format(row["value"], ".0%") if percentage else format(row["value"], "g")) for row in rows}
             color["legend"]["labelExpr"] = "(" + json.dumps(labels) + ")[datum.label]"
+        for index, row in enumerate(result["data"]["values"]):
+            row["sector_order"] = index
         order = {"field": "sector_order", "type": "quantitative", "sort": "ascending"}
         theta = {"field": "value", "type": "quantitative", "stack": True,
                  "title": "Share (%)" if percentage else "Value",
                  "scale": {"range": [options["rotation"], options["rotation"] + 2 * math.pi]}}
-        result.update(transform=[{"calculate": "indexof(" + json.dumps(categories) + ", datum.category)", "as": "sector_order"}],
-                      encoding={"theta": theta, "color": color, "order": order},
+        result.update(encoding={"theta": theta, "color": color, "order": order},
                       layer=[{"name": "sectors", "mark": {"type": "arc", "innerRadius": inner, "outerRadius": radius}}])
         if label_mode != "legend_value":
             outside = label_mode == "category_value"
@@ -72,11 +73,11 @@ def _spec(kind, rows, options):
                "encoding": {value_axis: position(field)}} for field in ("lower", "upper")],
             {"name": "medians", "mark": {"type": "tick", "orient": orient, "size": box_size, "thickness": 2.5, "color": "#111827"},
              "encoding": {value_axis: position("median"), "color": {"value": "#111827"}}},
-            {"name": "outliers", "transform": [{"flatten": ["outliers"], "as": ["outlier"]}, {"filter": "isValid(datum.outlier)"}],
+            {"name": "outliers", "data": {"values": [{"category": row["category"], "value": value} for row in rows for value in row["outliers"]]},
              "mark": {"type": "point", "shape": options["point_shape"], "size": 45, "opacity": 1},
-             "encoding": {value_axis: position("outlier")}}]
-        if not any(row["outliers"] for row in rows):
-            result["layer"].pop()
+             "encoding": {value_axis: position("value")}}]
+        for row in result["data"]["values"]:
+            row.pop("outliers")
     return result
 
 
@@ -87,7 +88,7 @@ OPTION_KEYS = ("size", "title", "legend_position", "show_legend", "hole_ratio", 
 def project_rows(full):
     """Copy semantic columns in Full order, without rounding or recomputing data."""
     kind = full["usermeta"]["semantic"]["kind"]
-    fields = ("category", "value") if kind == "pie" else ("category", "lower", "q1", "median", "q3", "upper", "outliers")
+    fields = ("category", "value") if kind == "pie" else ("category", "lower", "q1", "median", "q3", "upper")
     return [{field: copy.deepcopy(row[field]) for field in fields} for row in full["data"]["values"]]
 
 
@@ -123,7 +124,7 @@ def compact_spec(full):
         result.update(mark={"type": "arc"},
                       encoding={"theta": {"field": "value", "type": "quantitative", **_field_semantics(full, "theta")},
                                 "color": {"field": "category", "type": "nominal", **_field_semantics(full, "color")}})
-        return format_spec(result)
+        return format_spec(attach_tables(result))
     horizontal = options["orientation"] == "horizontal"
     category_axis, value_axis = ("y", "x") if horizontal else ("x", "y")
     result["encoding"] = {
@@ -136,9 +137,18 @@ def compact_spec(full):
                       value_axis + "2": {"field": "q3"}}},
         {"mark": {"type": "tick"},
          "encoding": {value_axis: {"field": "median", "type": "quantitative"}}},
-        {"transform": [{"flatten": ["outliers"]}], "mark": {"type": "point"},
-         "encoding": {value_axis: {"field": "outliers", "type": "quantitative"}}}]
-    return format_spec(result)
+        {"data": {"values": outlier_rows(full)}, "mark": {"type": "point"},
+         "encoding": {value_axis: {"field": "value", "type": "quantitative"}}}]
+    return format_spec(attach_tables(result))
+
+
+def outlier_rows(spec):
+    for layer in spec.get("layer", []):
+        mark = layer.get("mark")
+        if isinstance(mark, dict) and mark.get("type") == "point" and "data" in layer:
+            return copy.deepcopy(layer["data"]["values"])
+    return [{"category": row["category"], "value": value}
+            for row in spec["data"]["values"] for value in row.get("outliers", [])]
 
 
 def target_kind(spec):
@@ -150,7 +160,7 @@ def target_kind(spec):
         return "pie"
     data = spec.get("data")
     rows = data.get("values", []) if isinstance(data, dict) else []
-    if isinstance(rows, list) and rows and isinstance(rows[0], dict) and "outliers" in rows[0]:
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict) and {"q1", "median", "q3"} <= rows[0].keys():
         return "boxplot"
     return None
 
@@ -164,7 +174,7 @@ def validate_compact(spec):
     check(kind is not None, "unknown statistical chart")
     check(isinstance(spec.get("data"), dict) and set(spec["data"]) == {"values"}, "inline values only")
     rows = spec["data"]["values"]
-    fields = {"category", "value"} if kind == "pie" else {"category", "lower", "q1", "median", "q3", "upper", "outliers"}
+    fields = {"category", "value"} if kind == "pie" else {"category", "lower", "q1", "median", "q3", "upper"}
     check(isinstance(rows, list) and bool(rows), "empty table")
     check(all(isinstance(row, dict) and set(row) == fields for row in rows), "statistic fields")
     check(all(isinstance(row["category"], str) and row["category"] for row in rows), "category names")
@@ -173,11 +183,13 @@ def validate_compact(spec):
         title = spec["title"]
         check(isinstance(title, str) and bool(title) or isinstance(title, list) and bool(title)
               and all(isinstance(line, str) for line in title), "title")
+    points = outlier_rows(spec) if kind == "boxplot" else []
+    categories = {row["category"] for row in rows}
+    check(all(set(point) == {"category", "value"} and point["category"] in categories
+              and type(point["value"]) in (int, float) and math.isfinite(point["value"]) for point in points),
+          "invalid outlier row")
     for row in rows:
         values = [row["value"]] if kind == "pie" else [row[key] for key in ("lower", "q1", "median", "q3", "upper")]
-        if kind == "boxplot":
-            check(isinstance(row["outliers"], list), "outlier array")
-            values += row["outliers"]
         check(all(type(value) in (int, float) and math.isfinite(value) for value in values), "finite numbers required")
         if kind == "pie":
             check(row["value"] > 0, "positive sector values")
@@ -185,7 +197,7 @@ def validate_compact(spec):
             lower, q1, median, q3, upper = [Decimal(str(row[key])) for key in ("lower", "q1", "median", "q3", "upper")]
             low, high = q1 - Decimal("1.5") * (q3 - q1), q3 + Decimal("1.5") * (q3 - q1)
             check(low <= lower <= q1 <= median <= q3 <= upper <= high, "five-number ordering/fences")
-            check(all(Decimal(str(value)) < low or Decimal(str(value)) > high for value in row["outliers"]), "outliers inside fences")
+            check(all(Decimal(str(value)) < low or Decimal(str(value)) > high for value in (point["value"] for point in points if point["category"] == row["category"])), "outliers inside fences")
     enc = spec.get("encoding", {})
     check(isinstance(enc, dict) and all(isinstance(value, dict) for value in enc.values()), "encoding objects")
     options = {"title": spec.get("title")}
@@ -196,7 +208,10 @@ def validate_compact(spec):
         check(isinstance(layers, list) and len(layers) == 4, "four statistical layers required")
     full = {"data": {"values": rows}, "encoding": enc, "layer": spec.get("layer", []),
             "usermeta": {"semantic": {"kind": kind, "options": options}}}
-    check(format_spec(spec) == compact_spec(full), "unnecessary settings or incorrect statistical mapping")
+    expected = compact_spec(full)
+    if "usermeta" not in spec:
+        expected.pop("usermeta")
+    check(format_spec(spec) == expected, "unnecessary settings or incorrect statistical mapping")
 
 
 def build_pair(kind, cfg):
@@ -205,7 +220,11 @@ def build_pair(kind, cfg):
     cfg = copy.deepcopy(cfg)
     cfg["rows"] = canonical_numbers(cfg["rows"])
     options = {key: cfg[key] for key in OPTION_KEYS if key in cfg}
-    rows = [dict(row_id=f"r{index:03d}", **row) for index, row in enumerate(cfg["rows"])]
+    rows = copy.deepcopy(cfg["rows"])
+    if kind == "pie":
+        for row in rows:
+            if options["value_mode"] == "percent":
+                row["value"] = float(Decimal(str(row["value"])) / 100)
     full = _spec(kind, rows, options)
     semantic = {"kind": kind, "options": options}
     full["usermeta"] = {"semantic": semantic}
@@ -244,10 +263,10 @@ def build_pair(kind, cfg):
                     contrast[row["category"]] = "#111827" if .299 * red + .587 * green + .114 * blue > 150 else "#ffffff"
                 layer["encoding"]["color"] = {"value": {"expr": "(" + json.dumps(contrast) + ")[datum.category]"}}
     layout = {"final_plot_size": [full["width"], full["height"]], "source": "native_statistical"}
-    source = {"kind": kind, "family": cfg["family"], "rows": rows, "row_count": len(rows),
+    source = {"kind": kind, "family": cfg["family"], "rows": project_rows(full), "row_count": len(rows),
               "semantic": semantic, "plot_layout": layout, "presentation": full["usermeta"]["presentation"]}
     from compact import validate_target
-    full = format_spec(full)
+    full = format_spec(attach_tables(full, kind))
     target = compact_spec(full)
     validate_target(target)
     return full, target, source

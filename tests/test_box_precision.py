@@ -22,10 +22,10 @@ class BoxPrecisionTests(unittest.TestCase):
         cfg['observations'] = [observations[:] for category in cfg['categories']]
         cfg['rows'] = [dict(category=category, **tukey_summary(observations)) for category in cfg['categories']]
         full, compact, source = build_pair('boxplot', cfg)
-        self.assertEqual(compact['data']['values'], cfg['rows'])
+        self.assertEqual(compact['data']['values'], [{k: v for k, v in row.items() if k != 'outliers'} for row in cfg['rows']])
         self.assertEqual(full['data']['values'][0]['q1'], 1.1234567890126)
         self.assertEqual(compact['data']['values'][0]['q3'], 1.1234567890132)
-        self.assertEqual(validate_statistics('boxplot', cfg, source['rows']), [])
+        self.assertEqual(validate_statistics('boxplot', cfg, source['rows'], compact['layer'][-1]['data']['values']), [])
 
     def test_legitimate_quartile_digits_survive(self):
         summary = tukey_summary([86.88, 86.9, 93.85, 93.88])
@@ -51,11 +51,11 @@ class BoxPrecisionTests(unittest.TestCase):
             self.assertNotIn('statistic_decimals', cfg)
             self.assertNotIn('precision_resamples', cfg)
             full, compact, source = build_pair('boxplot', cfg)
-            self.assertEqual(compact['data']['values'], cfg['rows'])
+            self.assertEqual(compact['data']['values'], [{k: v for k, v in row.items() if k != 'outliers'} for row in cfg['rows']])
             self.assertEqual([{k: v for k, v in row.items() if k != 'row_id'}
-                              for row in full['data']['values']], cfg['rows'])
+                              for row in full['data']['values']], compact['data']['values'])
             self.assertEqual(len(compact['layer']), 4)
-            self.assertEqual(validate_statistics('boxplot', cfg, source['rows']), [])
+            self.assertEqual(validate_statistics('boxplot', cfg, source['rows'], compact['layer'][-1]['data']['values']), [])
             for row, observations in zip(cfg['rows'], cfg['observations']):
                 self.assertEqual(row, dict(category=row['category'], **tukey_summary(observations)))
 

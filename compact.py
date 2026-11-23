@@ -170,7 +170,9 @@ def normalize(full: dict) -> dict:
         validate_target(result)
         return result
     if _semantic(full) is None:
-        full = migrate_spec(full)
+        from statistical import target_kind
+        if not target_kind(full):
+            full = migrate_spec(full)
         validate_target(full)
         return format_spec(full)
     context = _context(full)
@@ -219,6 +221,8 @@ def normalize(full: dict) -> dict:
             result["mark"] = "line"
             encoding["order"] = {"field": "path_order", "type": "quantitative"}
     result["encoding"] = encoding
+    from table_metadata import attach_tables
+    attach_tables(result, kind)
     result = format_spec(result)
     validate_target(result)
     return result
@@ -271,7 +275,10 @@ def validate_canonical(spec: dict) -> None:
         if not ok:
             raise ValueError("Unsupported/noncanonical compact-v4: " + message)
     check(isinstance(spec, dict), "expected object")
-    check(set(spec) <= {"data", "title", "mark", "encoding", "layer"}, "top-level keys")
+    if "usermeta" in spec:
+        from table_metadata import table_metadata
+        check(spec["usermeta"] == {"table_export": table_metadata(spec)}, "incorrect table export mapping")
+    check(set(spec) <= {"usermeta", "data", "title", "mark", "encoding", "layer"}, "top-level keys")
     check({"data", "encoding"} <= set(spec), "missing data/encoding")
     check(isinstance(spec["data"], dict) and set(spec["data"]) == {"values"}, "inline values only")
     rows = spec["data"]["values"]

@@ -10,7 +10,10 @@
 !/adapter.py
 !/bootstrap.py
 !/build_gallery.py
+!/generate_chartarena_extensions.mjs
 !/compact.py
+!/table_metadata.py
+!/export_tables.mjs
 !/native.py
 !/pipeline.py
 !/plot_layout.py
@@ -32,6 +35,10 @@
 !/configs/smoke.json
 !/configs/production.json
 !/configs/examples.json
+!/configs/smoke_vsr.json
+!/configs/production_vsr.json
+!/configs/examples_vsr.json
+!/configs/chartarena-extensions.json
 !/configs/statistical-*.json
 !/tests/
 /tests/*
@@ -41,6 +48,8 @@
 !/docs/*.md
 !/vendor/
 /vendor/*
+!/vendor/vega-lite-table-export/
+!/vendor/vega-lite-table-export/*
 !/vendor/VSR/
 /vendor/VSR/*
 !/vendor/VSR/LICENSE

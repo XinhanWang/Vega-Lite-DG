@@ -27,7 +27,7 @@ class CompactTests(unittest.TestCase):
                 self.assertEqual(target, normalize(target))
                 self.assertEqual(project_rows(full), semantic_rows(target))
                 self.assertEqual(len(target["data"]["values"]), len(full["data"]["values"]))
-                self.assertLessEqual(set(target), {"data", "title", "mark", "encoding", "layer"})
+                self.assertLessEqual(set(target), {"data", "title", "mark", "encoding", "layer", "usermeta"})
                 for row in target["data"]["values"]:
                     self.assertLessEqual(set(row), {"category", "value", "x", "y", "series", "lower", "upper", "path_order", "stack_order", "start", "end", "category_id", "x_id", "series_id"})
                 self.assertEqual(target["encoding"]["x"]["title"], "Sample / time (s)")
