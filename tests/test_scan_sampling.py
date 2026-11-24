@@ -47,3 +47,19 @@ class SamplingPolicyTest(unittest.TestCase):
             with self.subTest(policy=policy):
                 with self.assertRaises(ValueError):
                     validate(policy, kinds)
+
+
+    def test_numeric_annotations_preserve_guides_and_compact_target(self):
+        from adapter import build_pair
+        from generation.core import sample_config
+        cfg = sample_config("barh_1", 137, {"category_count": 12})
+        _, expected, _ = build_pair("barh_1", cfg)
+        cfg["sampling"] = {"value_labels": True}
+        full, compact, _ = build_pair("barh_1", cfg)
+        self.assertEqual(expected, compact)
+        primary = full["layer"][0]["encoding"]
+        labels = [layer for layer in full["layer"] if "value_labels" in layer.get("name", "")]
+        self.assertTrue(labels)
+        for layer in labels:
+            for axis in ("x", "y"):
+                self.assertEqual(primary[axis]["axis"], layer["encoding"][axis]["axis"])

@@ -771,8 +771,8 @@ def _add_value_labels(full, kind, cfg):
             mark.update(dy=-shift * 5, baseline="bottom" if shift > 0 else "top")
         if stacked:
             mark.update(stroke=full["background"], strokeWidth=.3)
-        encoding = {axis: {"field": axis, "type": "quantitative",
-                           "scale": copy.deepcopy(primary[axis]["scale"])}
+        # Match the layered guides, including keep-all categorical tick settings.
+        encoding = {axis: {**copy.deepcopy(primary[axis]), "field": axis}
                     for axis in ("x", "y")}
         encoding["text"] = {"field": "label", "type": "nominal"}
         full["layer"].append({"name": DECORATION_PREFIX + f"value_labels_{group + 1}",
