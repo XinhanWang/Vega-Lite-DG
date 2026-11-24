@@ -4,6 +4,7 @@ import warnings
 from pathlib import Path
 
 from generation import KINDS, GENERATOR_VERSION
+from generation.sampling_policy import validate as validate_sampling
 from .io import read
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,7 +20,7 @@ def load_config(file):
         cfg = read(p)
     if not isinstance(cfg, dict):
         raise ValueError('Config must be an object')
-    known = {'seed', 'counts', 'controls', 'workers', 'target_side', 'notes', 'native', 'postprocess_native'}
+    known = {'seed', 'counts', 'controls', 'workers', 'target_side', 'notes', 'native', 'postprocess_native', 'sampling', 'render_workers'}
     if set(cfg) - known:
         raise ValueError('Unknown configuration keys: ' + str(set(cfg) - known))
     legacy = [key for key in ('native', 'postprocess_native') if cfg.pop(key, False)]
@@ -38,10 +39,14 @@ def load_config(file):
     for key, minimum in [('seed', 0), ('workers', 1), ('target_side', 64)]:
         if not isinstance(cfg[key], int) or isinstance(cfg[key], bool) or cfg[key] < minimum:
             raise ValueError(f'{key} must be an integer >= {minimum}')
+    if 'render_workers' in cfg and (type(cfg['render_workers']) is not int or cfg['render_workers'] < 1):
+        raise ValueError('render_workers must be a positive integer')
     if not isinstance(cfg['controls'], dict) or set(cfg['controls']) - {'all', *KINDS}:
         raise ValueError('controls must be an object keyed by all or chart kind')
     if any(not isinstance(value, dict) for value in cfg['controls'].values()):
         raise ValueError('Each controls entry must be an object')
+    if 'sampling' in cfg:
+        validate_sampling(cfg['sampling'], KINDS)
     return cfg
 
 

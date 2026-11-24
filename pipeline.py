@@ -11,6 +11,7 @@ import sys
 import traceback
 
 from generation import GENERATOR_VERSION, KINDS
+from generation.sampling_policy import plan
 from adapter import VERSION as PROJECTION_VERSION
 from workflow.config import ROOT, CONTRACT, load_config, task_seed
 from workflow.io import canonical, digest, dump, jsonl, read
@@ -39,13 +40,16 @@ def export_training_tables(directories, node=None):
                    input=json.dumps(directories), text=True, check=True)
 
 
-def render_records(out, records, target_side, node=None):
+def render_records(out, records, target_side, node=None, workers=None):
     write_render_jobs(out, records, node)
     node = node or str(ROOT.parent / '.runtime/node')
     if not Path(node).exists():
         node = shutil.which('node') or node
-    return subprocess.run([node, str(ROOT / 'render.mjs'), '--input', str(out / 'render-jobs.json'),
-                           '--out', str(out / 'render-report.json'), '--target-side', str(target_side)])
+    command = [node, str(ROOT / 'render.mjs'), '--input', str(out / 'render-jobs.json'),
+               '--out', str(out / 'render-report.json'), '--target-side', str(target_side)]
+    if workers is not None:
+        command.extend(['--workers', str(workers)])
+    return subprocess.run(command)
 
 
 def produce(task):
@@ -68,6 +72,8 @@ def produce(task):
         dump(out / 'generation.json', {**task, 'generator_version': GENERATOR_VERSION, 'contract': CONTRACT, 'sample_seed': result.get('sample_seed', task['seed']), 'diagnostics': result.get('diagnostics', {})})
         row = {k: task[k] for k in ['id', 'kind', 'index', 'seed']}
         row.update({'status': 'generated', 'sample': f'samples/{task["id"]}', 'config_sha256': digest(cfg), 'semantic_sha256': digest(compact), 'data_family': cfg.get('family'), 'x_mode': cfg.get('x_mode'), 'style_family': cfg.get('style', {}).get('style_family', cfg.get('style', {}).get('family')), 'series_count': cfg.get('n_series', 1)})
+        if task.get('sampling'):
+            row.update(sampling=task['sampling'])
         dump(out / 'record.json', row)
         return row
     except Exception as e:
@@ -107,8 +113,13 @@ def generate(args):
             if args.resume and (sample / 'record.json').exists():
                 records.append(read(sample / 'record.json'))
                 continue
-            controls = {**cfg['controls'].get('all', {}), **cfg['controls'].get(kind, {})}
-            tasks.append({'id': sample_id, 'kind': kind, 'index': index, 'seed': task_seed(cfg['seed'], kind, index), 'output': str(sample), 'controls': controls})
+            seed = task_seed(cfg['seed'], kind, index)
+            sampling, weighted = plan(kind, seed, cfg.get('sampling', {}))
+            controls = {**weighted, **cfg['controls'].get('all', {}), **cfg['controls'].get(kind, {})}
+            task = {'id': sample_id, 'kind': kind, 'index': index, 'seed': seed, 'output': str(sample), 'controls': controls}
+            if sampling:
+                task['sampling'] = sampling
+            tasks.append(task)
     if cfg['workers'] == 1:
         results = map(produce, tasks)
         for row in results:
@@ -121,7 +132,7 @@ def generate(args):
                 print(json.dumps({'id': row['id'], 'status': row['status'], 'done': len(records)}, ensure_ascii=False), flush=True)
     records.sort(key=lambda r: (KINDS.index(r['kind']), r['index']))
     dump(out / 'generation-manifest.json', records)
-    render = render_records(out, records, cfg['target_side'], args.node)
+    render = render_records(out, records, cfg['target_side'], args.node, cfg.get('render_workers'))
     summary = validate(out)
     if summary['rejected'] or render.returncode:
         raise SystemExit(1)

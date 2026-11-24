@@ -98,7 +98,7 @@ def _axes(rng, kind, cfg, controls):
 def sample_horizontal_stack(seed, controls=None):
     """Sample ordinary horizontal stacks by transposing the vertical stack rules."""
     c = dict(controls or {})
-    c['stack_mode'] = 'absolute'
+    c.setdefault('stack_mode', 'absolute')
     cfg, rng = sample_parameters('barv_stack', seed, c)
     # The matrix and cumulative left endpoints remain exact source numbers.
     cfg['bar_height'] = cfg.pop('bar_width')
@@ -109,7 +109,12 @@ def sample_horizontal_stack(seed, controls=None):
     cfg.pop('x_ha', None)
     return cfg, rng
 
-def sample_config(kind, seed, controls=None):
+def sample_config(kind, seed, controls=None, sampling=None):
+    from .localization import apply
+    return apply(_sample_config(kind, seed, controls), kind, seed, sampling)
+
+
+def _sample_config(kind, seed, controls=None):
     """Run the complete VSR parameter rules, then apply native contract adapters.
 
     Raw default parameters retain the upstream stochastic control flow. Extra
@@ -205,7 +210,7 @@ def sampling_diagnostics(kind, seed, cfg, controls=None):
             "config_sha256": config_sha256}
 
 
-def generate_chart(kind, seed, outdir, controls=None):
+def generate_chart(kind, seed, outdir, controls=None, sampling=None):
     """Persist sampling evidence, leaving JSON construction/rendering to the pipeline.
 
     The return dictionary retains config/sample_seed/diagnostics used by the
@@ -218,7 +223,7 @@ def generate_chart(kind, seed, outdir, controls=None):
     for name in ("config.json", "sampling.json"):
         if (outdir / name).exists():
             raise FileExistsError(f"Refusing to overwrite existing sample: {outdir / name}")
-    cfg = sample_config(kind, seed, c)
+    cfg = sample_config(kind, seed, c, sampling)
     diagnostics = sampling_diagnostics(kind, seed, cfg, c)
     outdir.mkdir(parents=True, exist_ok=True)
     save(outdir / "config.json", cfg)

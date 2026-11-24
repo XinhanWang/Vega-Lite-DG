@@ -202,7 +202,8 @@ def _rows(kind: str, cfg: dict, names: list[str]) -> list[dict]:
                            category_id=f"c{p:04d}", category_index=p,
                            category=str(label), category_position=p)
                 if mode == "temporal":
-                    calendar_date, granularity = _temporal_label(str(label))
+                    original_label = cfg.get("original_temporal_labels", cfg["x_labels"])[p]
+                    calendar_date, granularity = _temporal_label(str(original_label))
                     row.update(x_temporal=calendar_date, temporal_granularity=granularity)
                 rows.append(row)
     else:
@@ -730,6 +731,54 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
     return full, compact, source
 
 
+def _add_value_labels(full, kind, cfg):
+    """Place text on existing observations without changing the target table."""
+    rows = full["data"]["values"]
+    horizontal = kind.startswith("barh")
+    bar = kind.startswith("bar")
+    stacked = kind.endswith("_stack")
+    span = full["height"] if horizontal else full["width"]
+    # Annotations use display precision and density. Source/GT rows are unchanged.
+    maximum = max(2, min(24 if bar else 16, int(span / (15 if horizontal else 31))))
+    indices = {i * (len(rows) - 1) // (maximum - 1) for i in range(maximum)}
+    chosen = [row for i, row in enumerate(rows) if len(rows) <= maximum or i in indices]
+    font = full["usermeta"]["presentation"]["font"]
+    primary = full["layer"][0]["encoding"]
+    layers = {}
+    for row in chosen:
+        if bar:
+            x0, x1 = row["plot_x0"], row["plot_x1"]
+            y0, y1 = row["plot_y0"], row["plot_y1"]
+            x = (x0 + x1) / 2 if stacked or not horizontal else x1
+            y = (y0 + y1) / 2 if stacked or horizontal else y1
+            value = row["value"]
+        else:
+            x, y, value = row["plot_x"], row["plot_y"], row["y"]
+        group = 0 if stacked or not bar else (1 if value >= 0 else -1)
+        label = f"{value:.4g}"
+        if stacked and cfg.get("stack_mode") == "percent":
+            label += "%"
+        layers.setdefault(group, []).append({"x": x, "y": y, "label": label})
+    for group, data in layers.items():
+        direction = group * (-1 if primary["x" if horizontal else "y"]["scale"].get("reverse") else 1)
+        mark = {"type": "text", "font": font["family"], "fontWeight": font["weight"],
+                "fontStyle": font["style"], "fontSize": 10,
+                "color": cfg["style"]["text_color"], "baseline": "middle"}
+        if horizontal and not stacked:
+            mark.update(dx=direction * 5, align="left" if direction > 0 else "right")
+        elif not stacked:
+            shift = direction or 1
+            mark.update(dy=-shift * 5, baseline="bottom" if shift > 0 else "top")
+        if stacked:
+            mark.update(stroke=full["background"], strokeWidth=.3)
+        encoding = {axis: {"field": axis, "type": "quantitative",
+                           "scale": copy.deepcopy(primary[axis]["scale"])}
+                    for axis in ("x", "y")}
+        encoding["text"] = {"field": "label", "type": "nominal"}
+        full["layer"].append({"name": DECORATION_PREFIX + f"value_labels_{group + 1}",
+                              "data": {"values": data}, "mark": mark, "encoding": encoding})
+
+
 def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     """Render-ready full specification and minimal semantic training target."""
     if kind in {"pie", "boxplot"}:
@@ -740,6 +789,8 @@ def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
     full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True)
     full['usermeta']['semantic_labels'] = {key: source[key] for key in ('title', 'x_title', 'y_title')}
     full = apply_text_layout(apply_presentation(full, cfg))
+    if cfg.get("sampling", {}).get("value_labels"):
+        _add_value_labels(full, kind, cfg)
     source['presentation'] = copy.deepcopy(full['usermeta']['presentation'])
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]
     full['usermeta']['plot_layout']['final_plot_size'] = [full['width'], full['height']]

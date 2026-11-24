@@ -83,6 +83,11 @@ python3 pipeline.py reproject --source runs/old_run --output runs/reprojected --
 python3 pipeline.py validate --output runs/reprojected
 ```
 
+## ChartArena scan
+
+使用 [scan 配置](docs/chartarena-scan.md) 生成中文和英文数值图，默认中文概率为 50%。
+柱图、折线图、饼图和柱线组合图的数值标签概率为 25%。
+
 ## 控制采样
 
 `controls.all` 为通用设置，同名 `controls.<类型>` 优先。例子中的隐藏图例与类别折线均可直接强制：

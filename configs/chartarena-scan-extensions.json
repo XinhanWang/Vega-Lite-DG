@@ -1,0 +1,75 @@
+{
+  "seed": 20261124,
+  "counts": {
+    "radar": 100,
+    "combination": 100
+  },
+  "target_side": 1036,
+  "sampling": {
+    "zh_probability": 0.5,
+    "label_probability": {
+      "combination": 0.25
+    },
+    "weighted": {
+      "radar": {
+        "profile": [
+          {"value": "publication_clean", "weight": 44},
+          {"value": "compact_report", "weight": 18},
+          {"value": "monochrome_minimal", "weight": 12},
+          {"value": "colorful_analytic", "weight": 12},
+          {"value": "editorial", "weight": 10},
+          {"value": "dark_contrast", "weight": 4}
+        ],
+        "aspect_ratio": [
+          {"value": 1, "weight": 25},
+          {"value": 1.18, "weight": 55},
+          {"value": 1.5, "weight": 20}
+        ],
+        "category_count": [
+          {"value": 4, "weight": 5},
+          {"value": 5, "weight": 15},
+          {"value": 6, "weight": 26},
+          {"value": 7, "weight": 19},
+          {"value": 8, "weight": 17},
+          {"value": 9, "weight": 8},
+          {"value": 10, "weight": 7},
+          {"value": 12, "weight": 3}
+        ],
+        "series_count": [
+          {"value": 1, "weight": 45},
+          {"value": 2, "weight": 27},
+          {"value": 3, "weight": 17},
+          {"value": 4, "weight": 11}
+        ]
+      },
+      "combination": {
+        "profile": [
+          {"value": "publication_clean", "weight": 44},
+          {"value": "compact_report", "weight": 18},
+          {"value": "monochrome_minimal", "weight": 12},
+          {"value": "colorful_analytic", "weight": 12},
+          {"value": "editorial", "weight": 10},
+          {"value": "dark_contrast", "weight": 4}
+        ],
+        "aspect_ratio": [
+          {"value": 1.28, "weight": 20},
+          {"value": 1.64, "weight": 60},
+          {"value": 2.1, "weight": 20}
+        ],
+        "dual_axis": [
+          {"value": true, "weight": 60},
+          {"value": false, "weight": 40}
+        ],
+        "category_count": [
+          {"value": 5, "weight": 9},
+          {"value": 6, "weight": 14},
+          {"value": 7, "weight": 20},
+          {"value": 8, "weight": 20},
+          {"value": 9, "weight": 16},
+          {"value": 10, "weight": 13},
+          {"value": 12, "weight": 8}
+        ]
+      }
+    }
+  }
+}

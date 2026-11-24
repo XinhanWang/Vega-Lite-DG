@@ -98,11 +98,11 @@ def audit_geometry(kind, cfg, spec, geometry):
             angle += extent
             number = (format(row["value"], ".0%") if cfg["value_mode"] == "percent" else format(row["value"], "g"))
             expected_text = number if cfg["label_mode"] == "value" else row["category"] + ": " + number
-            if not compact and expected_text not in text:
+            if not compact and cfg["label_mode"] != "none" and expected_text not in text:
                 errors.append("Visible pie value/category label missing: " + expected_text)
         if len(sectors) != len(rows):
             errors.append("Expected one arc per category")
-        if not compact and cfg["label_mode"] != "legend_value":
+        if not compact and cfg["label_mode"] not in {"legend_value", "none"}:
             labels = elements("sector_labels_")
             if [label["datum"]["category"] for label in labels] != categories:
                 errors.append("Expected one visible numeric label per sector")

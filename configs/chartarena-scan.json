@@ -1,0 +1,147 @@
+{
+  "seed": 20261124,
+  "counts": {
+    "barh_1": 10,
+    "barh_n": 12,
+    "barv_1": 24,
+    "barv_n": 28,
+    "barv_stack": 17,
+    "barh_stack": 9,
+    "line_1": 32,
+    "line_n": 68,
+    "scatter_1": 25,
+    "scatter_n": 25,
+    "pie": 100,
+    "boxplot": 100
+  },
+  "sampling": {
+    "zh_probability": 0.5,
+    "label_probability": {
+      "barh_1": 0.25,
+      "barh_n": 0.25,
+      "barh_stack": 0.25,
+      "barv_1": 0.25,
+      "barv_n": 0.25,
+      "barv_stack": 0.25,
+      "line_1": 0.25,
+      "line_n": 0.25,
+      "pie": 0.25
+    },
+    "weighted": {
+      "all": {
+        "profile": [
+          {"value": "publication_clean", "weight": 44},
+          {"value": "compact_report", "weight": 18},
+          {"value": "monochrome_minimal", "weight": 12},
+          {"value": "colorful_analytic", "weight": 12},
+          {"value": "editorial", "weight": 10},
+          {"value": "dark_contrast", "weight": 4}
+        ]
+      },
+      "barh_1": {
+        "aspect_ratio": [
+          {"value": 1.1, "weight": 20},
+          {"value": 1.5, "weight": 60},
+          {"value": 2.15, "weight": 20}
+        ]
+      },
+      "barh_n": {
+        "aspect_ratio": [
+          {"value": 1.1, "weight": 20},
+          {"value": 1.5, "weight": 60},
+          {"value": 2.15, "weight": 20}
+        ]
+      },
+      "barh_stack": {
+        "aspect_ratio": [
+          {"value": 1.1, "weight": 20},
+          {"value": 1.5, "weight": 60},
+          {"value": 2.15, "weight": 20}
+        ],
+        "stack_mode": [
+          {"value": "absolute", "weight": 72},
+          {"value": "percent", "weight": 28}
+        ]
+      },
+      "barv_1": {
+        "aspect_ratio": [
+          {"value": 1.05, "weight": 20},
+          {"value": 1.5, "weight": 60},
+          {"value": 2.1, "weight": 20}
+        ]
+      },
+      "barv_n": {
+        "aspect_ratio": [
+          {"value": 1.05, "weight": 20},
+          {"value": 1.5, "weight": 60},
+          {"value": 2.1, "weight": 20}
+        ]
+      },
+      "barv_stack": {
+        "aspect_ratio": [
+          {"value": 1.05, "weight": 20},
+          {"value": 1.5, "weight": 60},
+          {"value": 2.1, "weight": 20}
+        ],
+        "stack_mode": [
+          {"value": "absolute", "weight": 72},
+          {"value": "percent", "weight": 28}
+        ]
+      },
+      "line_1": {
+        "aspect_ratio": [
+          {"value": 1, "weight": 20},
+          {"value": 1.28, "weight": 60},
+          {"value": 1.75, "weight": 20}
+        ],
+        "x_mode": [
+          {"value": "numeric", "weight": 25},
+          {"value": "temporal", "weight": 45},
+          {"value": "categorical", "weight": 30}
+        ]
+      },
+      "line_n": {
+        "aspect_ratio": [
+          {"value": 1, "weight": 20},
+          {"value": 1.28, "weight": 60},
+          {"value": 1.75, "weight": 20}
+        ],
+        "x_mode": [
+          {"value": "numeric", "weight": 25},
+          {"value": "temporal", "weight": 45},
+          {"value": "categorical", "weight": 30}
+        ]
+      },
+      "pie": {
+        "aspect_ratio": [
+          {"value": 1.08, "weight": 20},
+          {"value": 1.31, "weight": 60},
+          {"value": 1.65, "weight": 20}
+        ],
+        "value_mode": [
+          {"value": "percent", "weight": 92},
+          {"value": "absolute", "weight": 8}
+        ],
+        "donut": [
+          {"value": true, "weight": 18},
+          {"value": false, "weight": 82}
+        ]
+      },
+      "boxplot": {
+        "aspect_ratio": [
+          {"value": 1.03, "weight": 20},
+          {"value": 1.31, "weight": 60},
+          {"value": 1.62, "weight": 20}
+        ],
+        "orientation": [
+          {"value": "vertical", "weight": 75},
+          {"value": "horizontal", "weight": 25}
+        ]
+      }
+    }
+  },
+  "workers": 5,
+  "target_side": 1036,
+  "notes": "ChartArena scan-oriented numeric charts with 100 candidates per benchmark family; scatter adds 50 VSR candidates.",
+  "render_workers": 4
+}

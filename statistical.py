@@ -31,11 +31,12 @@ def _spec(kind, rows, options):
             row["sector_order"] = index
         order = {"field": "sector_order", "type": "quantitative", "sort": "ascending"}
         theta = {"field": "value", "type": "quantitative", "stack": True,
-                 "title": "Share (%)" if percentage else "Value",
+                 "title": ("占比 (%)" if percentage else "数值") if options.get("language") == "zh"
+                 else ("Share (%)" if percentage else "Value"),
                  "scale": {"range": [options["rotation"], options["rotation"] + 2 * math.pi]}}
         result.update(encoding={"theta": theta, "color": color, "order": order},
                       layer=[{"name": "sectors", "mark": {"type": "arc", "innerRadius": inner, "outerRadius": radius}}])
-        if label_mode != "legend_value":
+        if label_mode not in {"legend_value", "none"}:
             outside = label_mode == "category_value"
             expression = "datum.category + ': ' + " + number if outside else number
             label_mark = {"type": "text", "radius": radius + 30 if outside else max(radius * .78, (radius + inner) / 2),
@@ -220,12 +221,16 @@ def build_pair(kind, cfg):
     cfg = copy.deepcopy(cfg)
     cfg["rows"] = canonical_numbers(cfg["rows"])
     options = {key: cfg[key] for key in OPTION_KEYS if key in cfg}
+    if cfg.get("sampling", {}).get("language") == "zh":
+        options["language"] = "zh"
     rows = copy.deepcopy(cfg["rows"])
     if kind == "pie":
         for row in rows:
             if options["value_mode"] == "percent":
                 row["value"] = float(Decimal(str(row["value"])) / 100)
     full = _spec(kind, rows, options)
+    if ratio := cfg.get("layout_ratio"):
+        full["width"] = max(full["width"], round(full["height"] * ratio))
     semantic = {"kind": kind, "options": options}
     full["usermeta"] = {"semantic": semantic}
     full["title"] = {"text": cfg["title"], "fontSize": cfg["style"].get("title_size", 18),

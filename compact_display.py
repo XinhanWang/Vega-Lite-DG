@@ -41,4 +41,13 @@ def render_spec(compact: dict) -> dict:
         if 1 in counts.values():
             result["mark"] = {"type": "line"} if isinstance(mark, str) else mark
             result["mark"]["point"] = True
+    # Keep the compact target presentation-free while giving Chinese previews
+    # the exact embedded font face used by the native SVG renderer.
+    if any("\u3400" <= char <= "\u9fff" for char in json.dumps(compact, ensure_ascii=False)):
+        from generation.sampling_policy import CJK_NAME
+        result["config"] = {
+            "font": CJK_NAME, "title": {"fontWeight": 400},
+            "axis": {"titleFontWeight": 400, "labelFontWeight": 400},
+            "legend": {"titleFontWeight": 400, "labelFontWeight": 400},
+        }
     return result

@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import {fileURLToPath} from 'node:url';
 import {Resvg} from '@resvg/resvg-js';
 import * as vega from 'vega';
 import * as vl from 'vega-lite';
@@ -17,6 +18,45 @@ const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const plain = value => JSON.parse(JSON.stringify(value));
 const config = read(configFile);
+const root = path.dirname(fileURLToPath(import.meta.url));
+const fontName = 'Noto Sans CJK SC';
+const fontFile = path.join(root, 'assets/fonts/NotoSansCJKsc-Regular.otf');
+let samples = null;
+if (config.sampling) {
+  const planning = spawnSync('python3', ['-B', '-c', `
+import json, sys
+from generation.sampling_policy import EXTENSIONS, RADAR_THEMES, THEMES, plan, validate
+from workflow.config import task_seed
+cfg = json.load(sys.stdin)
+validate(cfg['sampling'], EXTENSIONS)
+output = {}
+for kind, count in cfg['counts'].items():
+    output[kind] = []
+    for index in range(count):
+        sample, choices = plan(kind, task_seed(cfg['seed'], kind, index), cfg['sampling'])
+        theme = sample.get('theme', 0)
+        output[kind].append(dict(sample=sample, choices=choices, theme=THEMES[theme],
+                                 radar=RADAR_THEMES[theme % len(RADAR_THEMES)]))
+json.dump(output, sys.stdout, ensure_ascii=False)
+`], {cwd: root, input: JSON.stringify(config), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024});
+  assert.equal(planning.status, 0, planning.stderr || String(planning.error));
+  samples = JSON.parse(planning.stdout);
+  if (Object.values(samples).flat().some(item => item.sample.language === 'zh')) {
+    assert(fs.existsSync(fontFile), 'Chinese font missing. Run python bootstrap.py --with-cjk');
+  }
+}
+
+const getPlan = (kind, index) => samples?.[kind][index];
+const isChinese = item => item?.sample.language === 'zh';
+const appearances = {
+  publication_clean: {background: '#ffffff', text: '#20252b', grid: '#e2e5e7', colors: ['#4074a7','#bf6725','#418766','#a45382']},
+  compact_report: {background: '#fafbf8', text: '#23392f', grid: '#d4ded8', colors: ['#367459','#a57136','#4b659e','#ac5755']},
+  monochrome_minimal: {background: '#ffffff', text: '#242424', grid: '#dedede', colors: ['#37506a','#777777','#161616','#8d7866']},
+  colorful_analytic: {background: '#ffffff', text: '#252131', grid: '#e8e3ed', colors: ['#755497','#ce6956','#2b867f','#a57722']},
+  editorial: {background: '#faf6ee', text: '#382a22', grid: '#e9dfd1', colors: ['#ad5446','#497389','#8f7743','#65547d']},
+  dark_contrast: {background: '#242831', text: '#f1f0eb', grid: '#555962', colors: ['#78aeed','#f1a463','#7dc7a2','#d5a4cd']},
+};
+const appearance = item => appearances[item?.choices.profile] ?? appearances.publication_clean;
 const {radar, combination} = config.counts;
 for (const value of [config.seed, radar, combination, config.target_side]) {
   assert(Number.isSafeInteger(value) && value > 0, 'Expected positive seed, counts and target size');
@@ -47,9 +87,13 @@ const radarThemes = [
 
 function radarSpec(index) {
   const rand = randomSource('radar', index);
-  const [title, pool] = radarThemes[index % radarThemes.length];
-  const categories = pool.slice(0, rand(4, pool.length));
-  const names = ['Group A', 'Group B', 'Group C'].slice(0, 1 + index % 3);
+  const item = getPlan('radar', index);
+  const [title, pool] = isChinese(item) ? item.radar : radarThemes[index % radarThemes.length];
+  const dimensionCount = item?.choices.category_count ?? rand(4, pool.length);
+  const categories = Array.from({length: dimensionCount}, (_, i) =>
+    pool[i] ?? (isChinese(item) ? `指标${i+1}` : `Measure ${i+1}`));
+  const names = (isChinese(item) ? ['方案甲', '方案乙', '方案丙', '方案丁']
+    : ['Group A', 'Group B', 'Group C', 'Group D']).slice(0, item?.choices.series_count ?? (1 + index % 3));
   const multiple = names.length > 1;
   const rows = categories.flatMap(category => names.map(series => ({
     category, value: rand(23, 96), ...(multiple ? {series} : {}),
@@ -60,7 +104,7 @@ function radarSpec(index) {
     mark: {type: 'bar'},
     encoding: {
       x: {field: 'category', type: 'nominal', sort: categories},
-      y: {field: 'value', type: 'quantitative', title: 'Score', scale: {domain: [0, 100]}},
+      y: {field: 'value', type: 'quantitative', title: isChinese(item) ? '得分' : 'Score', scale: {domain: [0, 100]}},
       ...(multiple ? {
         xOffset: {field: 'series', type: 'nominal'},
         color: {field: 'series', type: 'nominal'},
@@ -80,14 +124,19 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'];
 
 function combinationSpec(index) {
   const rand = randomSource('combination', index);
-  const [title, barName, lineName, yTitle, rightYTitle] = combinationThemes[Math.floor(index / 2) % combinationThemes.length];
+  const item = getPlan('combination', index);
+  const [title, barName, lineName, yTitle, rightYTitle] = isChinese(item)
+    ? [item.theme[0] + '与目标比较', '实际值', '目标值', item.theme[1], '达成率 (%)']
+    : combinationThemes[Math.floor(index / 2) % combinationThemes.length];
   const project = defaultProject('barline_n');
   project.title = title;
-  project.xTitle = 'Month';
+  project.xTitle = isChinese(item) ? '月份' : 'Month';
   project.yTitle = yTitle;
-  project.dualYAxis = index % 2 === 1;
+  project.dualYAxis = item?.choices.dual_axis ?? (index % 2 === 1);
   project.rightYTitle = project.dualYAxis ? rightYTitle : '';
-  project.categories = months.slice(0, rand(5, months.length));
+  const categoryCount = item?.choices.category_count ?? rand(5, months.length);
+  project.categories = Array.from({length:categoryCount}, (_, i) =>
+    isChinese(item) ? `${i+1}月` : months[i] ?? ['Oct','Nov','Dec'][i-9]);
   project.categoryObjects = project.categories.map(category => ({key: category, name: category}));
   project.errorBars = Math.floor(index / 2) % 3 === 0;
   project.series[0].name = barName;
@@ -115,7 +164,7 @@ assert.equal(radarProjection.status, 0, radarProjection.stderr || String(radarPr
 const radarViews = JSON.parse(radarProjection.stdout);
 assert.equal(radarViews.length, radarTargets.length);
 
-function fullRadar(compact, drawing) {
+function fullRadar(compact, drawing, index) {
   const rows = drawing.data.find(source => source.name === 'observations').values;
   const keys = rows => rows.map(({category, value, series}) => JSON.stringify([category, value, series])).sort();
   assert.deepEqual(keys(rows), keys(compact.data.values));
@@ -125,7 +174,32 @@ function fullRadar(compact, drawing) {
   if (!compact.encoding.color) {
     drawing.marks = drawing.marks.filter(mark => mark.from?.data !== 'legend');
   }
-  drawing.background = '#ffffff';
+  const item = getPlan('radar', index);
+  drawing.background = item ? appearance(item).background : '#ffffff';
+  if (item) {
+    const style = appearance(item);
+    drawing.config = {...drawing.config, text: {...drawing.config?.text,
+      ...(isChinese(item) ? {font:fontName} : {}), fill:style.text}};
+    const recolor = node => {
+      if (!node || typeof node !== 'object') return;
+      for (const [key, value] of Object.entries(node)) {
+        if (['stroke','fill'].includes(key) && value && /^#[0-9a-f]{6}$/i.test(value.value ?? '')) {
+          const color = value.value.toLowerCase();
+          const black = ['#222222','#333333','#555555','#000000'].includes(color);
+          const grey = ['#d1d5db','#cccccc','#bbbbbb','#dddddd','#999999'].includes(color);
+          if (black || grey) value.value = black ? style.text : style.grid;
+        }
+        if (key === 'font' && isChinese(item) && typeof value.value === 'string') value.value = fontName;
+        recolor(value);
+      }
+    };
+    recolor(drawing.marks);
+    for (const scale of drawing.scales ?? []) {
+      if (scale.type === 'ordinal' && Array.isArray(scale.range)) scale.range = style.colors;
+    }
+    const margin = Math.max(30, Math.round((drawing.height * (item.sample.aspect_ratio ?? 1) - drawing.width) / 2));
+    drawing.padding = {top:30,bottom:30,left:margin,right:margin};
+  }
   return drawing;
 }
 
@@ -155,7 +229,10 @@ async function render(kind, index, compact, full, compiled) {
   const svgCanvas = svg.match(/width="([\d.]+)" height="([\d.]+)"/);
   assert(svgCanvas, 'Vega rendered without canvas dimensions');
   const mode = Number(svgCanvas[1]) >= Number(svgCanvas[2]) ? 'width' : 'height';
-  const png = new Resvg(svg, {fitTo: {mode, value: config.target_side}}).render().asPng();
+  const item = getPlan(kind, index);
+  const font = isChinese(item) ? {fontFiles:[fontFile], defaultFontFamily:fontName} : undefined;
+  if (isChinese(item)) assert(svg.includes(fontName), 'Missing Chinese face in SVG');
+  const png = new Resvg(svg, {fitTo: {mode, value: config.target_side}, ...(font ? {font} : {})}).render().asPng();
   assert(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
   fs.mkdirSync(directory, {recursive: true});
   const fullName = kind === 'radar' ? 'full.vega.json' : 'full.vl.json';
@@ -168,6 +245,7 @@ async function render(kind, index, compact, full, compiled) {
     full: `${relative}/${fullName}`, compact: `${relative}/compact.vl.json`,
     observations: tableRows(compact).length, svg_sha256: createHash('sha256').update(svg).digest('hex'),
     png_sha256: createHash('sha256').update(png).digest('hex')};
+  if (item) entry.sampling = {...item.sample, ...item.choices};
   manifest.push(entry);
   training.push({id, image: entry.image, messages: [
     {role: 'user', content: '将图表转换为精简 Vega-Lite JSON。'},
@@ -176,12 +254,30 @@ async function render(kind, index, compact, full, compiled) {
 }
 
 for (const [index, compact] of radarTargets.entries()) {
-  const drawing = fullRadar(compact, radarViews[index]);
+  const drawing = fullRadar(compact, radarViews[index], index);
   await render('radar', index, compact, drawing, drawing);
 }
 for (let index = 0; index < combination; index++) {
   const compact = combinationSpec(index);
+  const item = getPlan('combination', index);
+  const style = appearance(item);
   const full = {$schema: schema, ...plain(renderSpec(compact)), width: 510, height: 290, background: '#ffffff'};
+  if (item) {
+    full.width = Math.round(full.height * (item.sample.aspect_ratio ?? 1.76));
+    full.background = style.background;
+    full.config = {...full.config,
+      ...(isChinese(item) ? {font:fontName} : {}),
+      title:{color:style.text, fontWeight:400},
+      axis:{labelColor:style.text,titleColor:style.text,gridColor:style.grid},
+      legend:{labelColor:style.text,titleColor:style.text},
+      range:{category:style.colors}};
+    if (item.sample.value_labels) {
+      const annotation = {mark:{type:'text', dy:-5, baseline:'bottom', color:style.text, fontSize:10},
+        encoding:{text:{field:'value',type:'nominal'}}};
+      if (full.layer[0].layer) full.layer[0].layer.push(annotation);
+      else full.layer.push(annotation);
+    }
+  }
   assert.deepEqual(tableRows(full), tableRows(compact));
   const warnings = [];
   const logger = vega.logger(vega.Warn, (_, level, ...messages) => warnings.push([level, ...messages]));

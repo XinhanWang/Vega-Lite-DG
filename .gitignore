@@ -39,6 +39,7 @@
 !/configs/production_vsr.json
 !/configs/examples_vsr.json
 !/configs/chartarena-extensions.json
+!/configs/chartarena-scan*.json
 !/configs/statistical-*.json
 !/tests/
 /tests/*

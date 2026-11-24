@@ -9,6 +9,7 @@ import time
 import urllib.request
 
 from presentation import describe_font
+from generation.sampling_policy import CJK_FILE, CJK_NAME
 
 ROOT = Path(__file__).resolve().parent
 FONT_DIR = ROOT / "assets/fonts"
@@ -34,6 +35,8 @@ FONT_URLS = {
 
 # Support faces do not enlarge the original 16-face generation sampling pool.
 BASE_FONT_NAMES = tuple(FONT_URLS)
+CJK_URL = ("https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/"
+           "Sans/OTF/SimplifiedChinese/" + CJK_FILE)
 for name in ('NimbusSans-Italic.otf','NimbusSans-BoldItalic.otf','NimbusRoman-Italic.otf','NimbusRoman-BoldItalic.otf','NimbusMonoPS-Italic.otf','NimbusMonoPS-BoldItalic.otf','URWBookman-LightItalic.otf','URWBookman-DemiItalic.otf','URWGothic-BookOblique.otf','URWGothic-Demi.otf','URWGothic-DemiOblique.otf'):
     FONT_URLS[name] = 'https://raw.githubusercontent.com/ArtifexSoftware/urw-base35-fonts/3c0ba3b5687632dfc66526544a4e811fe0ec0cd9/fonts/' + name
 for name in ('DejaVuSans-Oblique.ttf','DejaVuSans-BoldOblique.ttf','DejaVuSerif-Italic.ttf','DejaVuSerif-BoldItalic.ttf','DejaVuSansMono-Oblique.ttf','DejaVuSansMono-BoldOblique.ttf'):
@@ -43,13 +46,16 @@ for name, url in list(FONT_URLS.items()):
         FONT_URLS[name] = url.replace('/master/','/3c0ba3b5687632dfc66526544a4e811fe0ec0cd9/')
 
 
+CJK_SHA256 = "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"
+
+
 def embedding_license_record(font):
     from font_embedding import inspect_font
     family = describe_font(font)['family']
     notice = ROOT / 'docs/font-licenses' / (font.stem + '.txt')
     if not notice.is_file():
         raise ValueError('Missing audited font license notice: ' + str(notice))
-    license_id = 'DejaVu-permissive' if family.startswith('DejaVu') else 'OFL-1.1' if family == 'Noto Mono' else 'AGPL-3.0-upstream-source-bundled'
+    license_id = 'DejaVu-permissive' if family.startswith('DejaVu') else 'OFL-1.1' if family in {'Noto Mono', CJK_NAME} else 'AGPL-3.0-upstream-source-bundled'
     result = {'status':'approved', 'id':license_id, 'notice':notice.relative_to(ROOT).as_posix(), 'notice_sha256':hashlib.sha256(notice.read_bytes()).hexdigest()}
     if license_id.startswith('AGPL'):
         archive = ROOT / 'docs/font-licenses/urw-base35-3c0ba3b-source.tar.gz'
@@ -82,15 +88,19 @@ def download_font(url, destination, retries=3, timeout=30):
             time.sleep(min(2 ** attempt, 8))
 
 
-def setup_fonts(retries=3, timeout=30):
+def setup_fonts(retries=3, timeout=30, with_cjk=False):
     if retries < 1 or timeout <= 0:
         raise ValueError("retries and timeout must be positive")
     records = []
-    for name, url in FONT_URLS.items():
+    urls = {**FONT_URLS, **({CJK_FILE: CJK_URL} if with_cjk or (FONT_DIR / CJK_FILE).is_file() else {})}
+    for name, url in urls.items():
         font = FONT_DIR / name
         download_font(url, font, retries, timeout)
+        digest = hashlib.sha256(font.read_bytes()).hexdigest()
+        if name == CJK_FILE and digest != CJK_SHA256:
+            raise ValueError("Chinese font differs from the pinned Noto Sans CJK SC face")
         records.append({"file": font.relative_to(ROOT).as_posix(), **describe_font(font),
-                        "sha256": hashlib.sha256(font.read_bytes()).hexdigest(), "bytes": font.stat().st_size, "sampling_role":"base" if name in BASE_FONT_NAMES else "support_variant", "embedding_license":embedding_license_record(font)})
+                        "sha256": digest, "bytes": font.stat().st_size, "sampling_role":"base" if name in BASE_FONT_NAMES else "support_variant", "embedding_license":embedding_license_record(font)})
     manifest = {"directory": "assets/fonts", "font_count": len(records), "base_font_count":len(BASE_FONT_NAMES), "fonts": records}
     destination = ROOT / "fonts.manifest.json"
     temporary = destination.with_suffix(".json.tmp")
@@ -103,6 +113,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument("--with-cjk", action="store_true")
     args = parser.parse_args()
-    result = setup_fonts(args.retries, args.timeout)
+    result = setup_fonts(args.retries, args.timeout, args.with_cjk)
     print(json.dumps({"font_count": result["font_count"], "manifest": str(ROOT / "fonts.manifest.json")}))

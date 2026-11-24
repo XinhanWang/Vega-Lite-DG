@@ -1,6 +1,6 @@
 {
   "directory": "assets/fonts",
-  "font_count": 33,
+  "font_count": 34,
   "base_font_count": 16,
   "fonts": [
     {
@@ -596,6 +596,21 @@
         "id": "DejaVu-permissive",
         "notice": "docs/font-licenses/DejaVuSansMono-BoldOblique.txt",
         "notice_sha256": "b96b530dbfc8d12c29b29b6f839193b55b997031db35f3b18065764d4355051a"
+      }
+    },
+    {
+      "file": "assets/fonts/NotoSansCJKsc-Regular.otf",
+      "family": "Noto Sans CJK SC",
+      "weight": 400,
+      "style": "normal",
+      "sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+      "bytes": 16437364,
+      "sampling_role": "support_variant",
+      "embedding_license": {
+        "status": "approved",
+        "id": "OFL-1.1",
+        "notice": "docs/font-licenses/NotoSansCJKsc-Regular.txt",
+        "notice_sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
       }
     }
   ]
