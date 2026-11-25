@@ -6,6 +6,7 @@
   },
   "target_side": 1036,
   "sampling": {
+    "text_profile": "expanded-v1",
     "zh_probability": 0.5,
     "label_probability": {
       "combination": 0.25

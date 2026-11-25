@@ -15,6 +15,7 @@
     "boxplot": 100
   },
   "sampling": {
+    "text_profile": "expanded-v1",
     "zh_probability": 0.5,
     "label_probability": {
       "barh_1": 0.25,

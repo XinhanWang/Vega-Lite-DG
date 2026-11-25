@@ -9,3 +9,19 @@ VSR 上游：https://github.com/InternLM/VSR ，固定提交 `1fd040346add205ffb
 Vega-Lite、Vega、Resvg 的固定 npm 版本见 package.json。字体由 bootstrap.py 准备；SVG携带实际字形、版权和许可，字体分发规则见 [docs/font-licenses/README.md](docs/font-licenses/README.md)。字体元数据和子集使用fontTools，不需要Matplotlib。
 
 设计参考：[ChartCoder](https://github.com/thunlp/ChartCoder/tree/main/data_generator)、[Vega-Lite 官方示例](https://vega.github.io/vega-lite/examples/)。没有引入这些项目的数据集或安装目录。
+
+
+## Simplified Chinese chart vocabulary
+
+`generation/words_zh.txt.gz` contains 221,690 terms derived from `jieba/dict.txt`
+in the [jieba 0.42.1 source distribution](https://pypi.org/project/jieba/0.42.1/).
+The upstream [MIT license](vendor/jieba/LICENSE) is included.
+The source archive SHA-256 is
+`055ca12f62674fafed09427f176506079bc135638a14e23e25be909131928db2`.
+The dictionary SHA-256 is `7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8`.
+
+Keep 2–6 Han characters in GB2312 with dictionary frequency >= 3 and exclude
+the proper-name tags `nr`, `nrfg`, `nrt`, `ns` and `nt`. Deduplicate, sort by
+Unicode code point, write UTF-8 with LF endings and gzip with timestamp zero.
+The uncompressed word list SHA-256 is
+`78129389f58d273f4cedc30c16d2544092e06ea55f4c549e088b4f20885d9995`.

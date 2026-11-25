@@ -37,10 +37,12 @@ def _probability(value, name):
 
 
 def validate(policy, kinds):
-    if not isinstance(policy, dict) or set(policy) - {"zh_probability", "label_probability", "weighted"}:
-        raise ValueError("sampling requires zh_probability, label_probability or weighted entries")
+    if not isinstance(policy, dict) or set(policy) - {"zh_probability", "label_probability", "weighted", "text_profile"}:
+        raise ValueError("Unknown sampling option or invalid sampling object")
     if "zh_probability" in policy:
         _probability(policy["zh_probability"], "zh_probability")
+    if "text_profile" in policy and policy["text_profile"] != "expanded-v1":
+        raise ValueError("sampling.text_profile must be expanded-v1")
     for name in ("label_probability", "weighted"):
         rules = policy.get(name, {})
         keys = LABEL_KINDS & set(kinds) if name == "label_probability" else {"all", *kinds}
@@ -91,6 +93,9 @@ def plan(kind, seed, policy):
         result["language"] = "zh" if unit(kind, seed, "language") < policy["zh_probability"] else "en"
         result["theme"] = int(unit(kind, seed, "theme") * len(THEMES))
         result["title_pattern"] = int(unit(kind, seed, "title_pattern") * len(TITLE_PATTERNS))
+    if "text_profile" in policy:
+        result["text_profile"] = policy["text_profile"]
+        result.setdefault("language", "en")
     if kind in policy.get("label_probability", {}):
         result["value_labels"] = unit(kind, seed, "value_labels") < policy["label_probability"][kind]
     weights = policy.get("weighted", {})

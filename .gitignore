@@ -27,6 +27,7 @@
 /generation/*
 !/generation/*.py
 !/generation/words.txt
+!/generation/words_zh.txt.gz
 !/workflow/
 /workflow/*
 !/workflow/*.py
@@ -54,6 +55,9 @@
 !/vendor/VSR/
 /vendor/VSR/*
 !/vendor/VSR/LICENSE
+!/vendor/jieba/
+/vendor/jieba/*
+!/vendor/jieba/LICENSE
 # Never track credentials, installed packages, downloaded fonts or build caches.
 **/.env
 **/.env.*

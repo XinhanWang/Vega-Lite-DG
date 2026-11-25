@@ -11,12 +11,13 @@ python3 pipeline.py generate --config configs/chartarena-scan.json --output runs
 ```
 
 - `counts` 决定各模板的候选数。默认把 ChartArena 的六类数值图各配为 100 个候选，另保留 50 个散点候选。人工审查可把每个模板的计数改为 100 并为质量拒绝留余量。
+- `sampling.text_profile: expanded-v1` 来自 VSR 原有的短词、短语、配对、日期、缩写和代码组合。中文使用 221,690 个词条，英文复用 VSR 英文词库，两种语言再混入图表领域词汇。文字有独立随机源，全部 14 个模板均可使用。省略该项使用之前的文字采样。
 - `sampling.zh_probability` 是每张图独立采样中文的概率，默认 0.5。
 - `sampling.label_probability` 按模板设置数据点、柱或扇区的数值标注概率。柱图、折线图、饼图和柱线组合图默认 0.25。轴刻度、类别名和图例名照常显示。
 - `sampling.weighted` 以 `{"value": ..., "weight": ...}` 条目定义分布。模板级同名权重优先于 `all`，原生配置里的显式 `controls` 优先于权重采样。每个变量使用由种子、模板和字段派生的独立随机数。
 - `render_workers` 可以单独控制原生渲染进程数。未配置时沿用渲染器默认值。
 - 中文使用固定版本的 Noto Sans CJK SC。数值单位和日历语义保留，显示文本在构建 Full 规格与 Compact GT 之前应用。显式数值标注只进入 Full，Compact GT 保持原数据和结构。
-- `configs/production_vsr.json`、`configs/examples_vsr.json` 和旧式扩展配置仍可直接运行。要用 VSR 自然样式同时开启双语，可在一份独立的 VSR 配置中加入 `sampling.zh_probability: 0.5`。
+- `configs/production_vsr.json`、`configs/examples_vsr.json` 和旧式扩展配置仍可直接运行。要用 VSR 自然样式同时开启双语，可在一份独立的 VSR 配置中加入 `sampling.zh_probability: 0.5` 与 `sampling.text_profile: expanded-v1`。
 
 ## 参考分布
 

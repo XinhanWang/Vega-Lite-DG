@@ -21,32 +21,40 @@ const config = read(configFile);
 const root = path.dirname(fileURLToPath(import.meta.url));
 const fontName = 'Noto Sans CJK SC';
 const fontFile = path.join(root, 'assets/fonts/NotoSansCJKsc-Regular.otf');
-let samples = null;
-if (config.sampling) {
+const batchSize = 128;
+
+function planBatch(kind, start, count) {
+  if (!config.sampling) return Array(count).fill(undefined);
   const planning = spawnSync('python3', ['-B', '-c', `
 import json, sys
 from generation.sampling_policy import EXTENSIONS, RADAR_THEMES, THEMES, plan, validate
+from generation.chart_text import sample_chart_text
 from workflow.config import task_seed
 cfg = json.load(sys.stdin)
 validate(cfg['sampling'], EXTENSIONS)
-output = {}
-for kind, count in cfg['counts'].items():
-    output[kind] = []
-    for index in range(count):
-        sample, choices = plan(kind, task_seed(cfg['seed'], kind, index), cfg['sampling'])
-        theme = sample.get('theme', 0)
-        output[kind].append(dict(sample=sample, choices=choices, theme=THEMES[theme],
-                                 radar=RADAR_THEMES[theme % len(RADAR_THEMES)]))
+kind, start, count = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+output = []
+for index in range(start, start + count):
+    seed = task_seed(cfg['seed'], kind, index)
+    sample, choices = plan(kind, seed, cfg['sampling'])
+    theme = sample.get('theme', 0)
+    item = dict(sample=sample, choices=choices, theme=THEMES[theme],
+                radar=RADAR_THEMES[theme % len(RADAR_THEMES)])
+    if sample.get('text_profile') == 'expanded-v1':
+        item['words'] = sample_chart_text(kind, seed, sample['language'], 12,
+                                         4 if kind == 'radar' else 2)
+    output.append(item)
 json.dump(output, sys.stdout, ensure_ascii=False)
-`], {cwd: root, input: JSON.stringify(config), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024});
+`, kind, String(start), String(count)], {cwd: root, input: JSON.stringify(config),
+                                       encoding: 'utf8', maxBuffer: 16 * 1024 * 1024});
   assert.equal(planning.status, 0, planning.stderr || String(planning.error));
-  samples = JSON.parse(planning.stdout);
-  if (Object.values(samples).flat().some(item => item.sample.language === 'zh')) {
+  const items = JSON.parse(planning.stdout);
+  if (items.some(isChinese)) {
     assert(fs.existsSync(fontFile), 'Chinese font missing. Run python bootstrap.py --with-cjk');
   }
+  return items;
 }
 
-const getPlan = (kind, index) => samples?.[kind][index];
 const isChinese = item => item?.sample.language === 'zh';
 const appearances = {
   publication_clean: {background: '#ffffff', text: '#20252b', grid: '#e2e5e7', colors: ['#4074a7','#bf6725','#418766','#a45382']},
@@ -85,21 +93,20 @@ const radarThemes = [
   ['Product testing', ['Design', 'Handling', 'Power', 'Durability', 'Comfort', 'Setup', 'Precision', 'Finish']],
 ];
 
-function radarSpec(index) {
+function radarSpec(index, item) {
   const rand = randomSource('radar', index);
-  const item = getPlan('radar', index);
-  const [title, pool] = isChinese(item) ? item.radar : radarThemes[index % radarThemes.length];
+  const [baseTitle, pool] = isChinese(item) ? item.radar : radarThemes[index % radarThemes.length];
   const dimensionCount = item?.choices.category_count ?? rand(4, pool.length);
   const categories = Array.from({length: dimensionCount}, (_, i) =>
-    pool[i] ?? (isChinese(item) ? `指标${i+1}` : `Measure ${i+1}`));
-  const names = (isChinese(item) ? ['方案甲', '方案乙', '方案丙', '方案丁']
-    : ['Group A', 'Group B', 'Group C', 'Group D']).slice(0, item?.choices.series_count ?? (1 + index % 3));
+    item?.words?.categories[i] ?? pool[i] ?? (isChinese(item) ? `指标${i+1}` : `Measure ${i+1}`));
+  const names = (item?.words?.series ?? (isChinese(item) ? ['方案甲', '方案乙', '方案丙', '方案丁']
+    : ['Group A', 'Group B', 'Group C', 'Group D'])).slice(0, item?.choices.series_count ?? (1 + index % 3));
   const multiple = names.length > 1;
   const rows = categories.flatMap(category => names.map(series => ({
     category, value: rand(23, 96), ...(multiple ? {series} : {}),
   })));
   return {
-    title,
+    title: item?.words?.title ?? baseTitle,
     data: {values: rows},
     mark: {type: 'bar'},
     encoding: {
@@ -122,21 +129,23 @@ const combinationThemes = [
 ];
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'];
 
-function combinationSpec(index) {
+function combinationSpec(index, item) {
   const rand = randomSource('combination', index);
-  const item = getPlan('combination', index);
-  const [title, barName, lineName, yTitle, rightYTitle] = isChinese(item)
+  const defaults = isChinese(item)
     ? [item.theme[0] + '与目标比较', '实际值', '目标值', item.theme[1], '达成率 (%)']
     : combinationThemes[Math.floor(index / 2) % combinationThemes.length];
+  const words = item?.words;
+  const [title, barName, lineName, yTitle, rightYTitle] = words
+    ? [words.title, ...words.series, words.value_axis, words.right_axis] : defaults;
   const project = defaultProject('barline_n');
   project.title = title;
-  project.xTitle = isChinese(item) ? '月份' : 'Month';
+  project.xTitle = words?.category_axis ?? (isChinese(item) ? '月份' : 'Month');
   project.yTitle = yTitle;
   project.dualYAxis = item?.choices.dual_axis ?? (index % 2 === 1);
   project.rightYTitle = project.dualYAxis ? rightYTitle : '';
   const categoryCount = item?.choices.category_count ?? rand(5, months.length);
   project.categories = Array.from({length:categoryCount}, (_, i) =>
-    isChinese(item) ? `${i+1}月` : months[i] ?? ['Oct','Nov','Dec'][i-9]);
+    words ? words.categories[i] : isChinese(item) ? `${i+1}月` : months[i] ?? ['Oct','Nov','Dec'][i-9]);
   project.categoryObjects = project.categories.map(category => ({key: category, name: category}));
   project.errorBars = Math.floor(index / 2) % 3 === 0;
   project.series[0].name = barName;
@@ -156,15 +165,18 @@ function combinationSpec(index) {
   return compact;
 }
 
-const radarTargets = Array.from({length: radar}, (_, index) => radarSpec(index));
-const radarProjection = spawnSync('python3', ['-B', '-c',
-  'import json,sys; from chart_gt_adapter.extensions import radar_to_vega; json.dump([radar_to_vega(s) for s in json.load(sys.stdin)],sys.stdout)'],
-{input: JSON.stringify(radarTargets.map(spec => ({...spec, usermeta: {chartType: 'radar'}}))), cwd: adapterDirectory, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024});
-assert.equal(radarProjection.status, 0, radarProjection.stderr || String(radarProjection.error ?? 'Radar adapter failed'));
-const radarViews = JSON.parse(radarProjection.stdout);
-assert.equal(radarViews.length, radarTargets.length);
+function projectRadar(targets) {
+  const radarProjection = spawnSync('python3', ['-B', '-c',
+    'import json,sys; from chart_gt_adapter.extensions import radar_to_vega; json.dump([radar_to_vega(s) for s in json.load(sys.stdin)],sys.stdout)'],
+    {input: JSON.stringify(targets.map(spec => ({...spec, usermeta: {chartType: 'radar'}}))),
+     cwd: adapterDirectory, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024});
+  assert.equal(radarProjection.status, 0, radarProjection.stderr || String(radarProjection.error ?? 'Radar adapter failed'));
+  const views = JSON.parse(radarProjection.stdout);
+  assert.equal(views.length, targets.length);
+  return views;
+}
 
-function fullRadar(compact, drawing, index) {
+function fullRadar(compact, drawing, item) {
   const rows = drawing.data.find(source => source.name === 'observations').values;
   const keys = rows => rows.map(({category, value, series}) => JSON.stringify([category, value, series])).sort();
   assert.deepEqual(keys(rows), keys(compact.data.values));
@@ -174,7 +186,6 @@ function fullRadar(compact, drawing, index) {
   if (!compact.encoding.color) {
     drawing.marks = drawing.marks.filter(mark => mark.from?.data !== 'legend');
   }
-  const item = getPlan('radar', index);
   drawing.background = item ? appearance(item).background : '#ffffff';
   if (item) {
     const style = appearance(item);
@@ -213,7 +224,7 @@ const manifest = [];
 fs.mkdirSync(output);
 write(path.join(output, 'config.json'), config);
 
-async function render(kind, index, compact, full, compiled) {
+async function render(kind, index, compact, full, compiled, item) {
   const id = `${kind}-${String(index).padStart(6, '0')}`;
   const relative = `samples/${id}`;
   const directory = path.join(output, relative);
@@ -221,15 +232,27 @@ async function render(kind, index, compact, full, compiled) {
   let svg;
   try {
     await view.runAsync();
+    if (item?.words) {
+      const visible = new Set();
+      function collect(node) {
+        if (node.mark?.marktype === 'text' && node.opacity !== 0 && typeof node.text === 'string') {
+          visible.add(node.text);
+        }
+        for (const child of node.items ?? []) collect(child);
+      }
+      collect(view.scenegraph().root);
+      const expected = new Set([compact.title,
+        ...tableRows(compact).flatMap(row => [row.category, row.series]).filter(Boolean)]);
+      for (const text of expected) assert(visible.has(text), `Visible text missing for ${id}: ${text}`);
+    }
     svg = await view.toSVG();
   } finally {
     view.finalize();
   }
-  assert(svg.includes('<svg') && svg.includes(compact.title));
+  assert(svg.includes('<svg') && (item?.words || svg.includes(compact.title)));
   const svgCanvas = svg.match(/width="([\d.]+)" height="([\d.]+)"/);
   assert(svgCanvas, 'Vega rendered without canvas dimensions');
   const mode = Number(svgCanvas[1]) >= Number(svgCanvas[2]) ? 'width' : 'height';
-  const item = getPlan(kind, index);
   const font = isChinese(item) ? {fontFiles:[fontFile], defaultFontFamily:fontName} : undefined;
   if (isChinese(item)) assert(svg.includes(fontName), 'Missing Chinese face in SVG');
   const png = new Resvg(svg, {fitTo: {mode, value: config.target_side}, ...(font ? {font} : {})}).render().asPng();
@@ -253,13 +276,8 @@ async function render(kind, index, compact, full, compiled) {
   ]});
 }
 
-for (const [index, compact] of radarTargets.entries()) {
-  const drawing = fullRadar(compact, radarViews[index], index);
-  await render('radar', index, compact, drawing, drawing);
-}
-for (let index = 0; index < combination; index++) {
-  const compact = combinationSpec(index);
-  const item = getPlan('combination', index);
+async function renderCombination(index, item) {
+  const compact = combinationSpec(index, item);
   const style = appearance(item);
   const full = {$schema: schema, ...plain(renderSpec(compact)), width: 510, height: 290, background: '#ffffff'};
   if (item) {
@@ -283,7 +301,23 @@ for (let index = 0; index < combination; index++) {
   const logger = vega.logger(vega.Warn, (_, level, ...messages) => warnings.push([level, ...messages]));
   const compiled = vl.compile(full, {logger}).spec;
   assert.deepEqual(warnings, [], 'Vega-Lite reported a compilation diagnostic');
-  await render('combination', index, compact, full, compiled);
+  await render('combination', index, compact, full, compiled, item);
+}
+for (let start = 0; start < radar; start += batchSize) {
+  const items = planBatch('radar', start, Math.min(batchSize, radar - start));
+  const targets = items.map((item, offset) => radarSpec(start + offset, item));
+  const views = projectRadar(targets);
+  for (const [offset, compact] of targets.entries()) {
+    const item = items[offset];
+    const drawing = fullRadar(compact, views[offset], item);
+    await render('radar', start + offset, compact, drawing, drawing, item);
+  }
+}
+for (let start = 0; start < combination; start += batchSize) {
+  const items = planBatch('combination', start, Math.min(batchSize, combination - start));
+  for (const [offset, item] of items.entries()) {
+    await renderCombination(start + offset, item);
+  }
 }
 for (const [name, records] of [['manifest', manifest], ['train', training]]) {
   fs.writeFileSync(path.join(output, name + '.jsonl'), records.map(record => JSON.stringify(record)).join('\n') + '\n');
