@@ -26,7 +26,7 @@ def normalize_controls(kind, controls):
                 raise ValueError(f"Conflicting controls: {old} and {new}")
             c[new] = c.pop(old)
     accepted = {"point_count", "category_count", "series_count", "family", "x_mode", "stack_mode", "profile", "style", "show_error", "hatch", "max_attempts", "show_legend", "x_inverted", "y_inverted", "x_scale", "y_scale", "reference_lines"}
-    special = {"donut", "value_mode", "label_mode", "legend_position"} if kind == "pie" else {"orientation", "outlier_mode", "legend_position"} if kind == "boxplot" else set()
+    special = {"donut", "value_mode", "value_title", "label_mode", "legend_position", "zero_count"} if kind == "pie" else {"orientation", "outlier_mode", "legend_position"} if kind == "boxplot" else set()
     unknown = set(c) - accepted - special
     if unknown:
         raise ValueError(f"Unknown generation controls: {sorted(unknown)}")
@@ -53,6 +53,12 @@ def normalize_controls(kind, controls):
                 raise ValueError(f"{key} must be one of {sorted(values)}")
         if "donut" in c and not isinstance(c["donut"], bool):
             raise ValueError("donut must be a boolean")
+        if "value_title" in c:
+            title = c["value_title"]
+            if not isinstance(title, str) and not (isinstance(title, list) and title and all(isinstance(line, str) for line in title)):
+                raise ValueError("value_title must be text or a nonempty list of text lines")
+        if "zero_count" in c and (type(c["zero_count"]) is not int or not 0 <= c["zero_count"] < c.get("category_count", 8)):
+            raise ValueError("zero_count must be a nonnegative integer smaller than category_count (maximum 7)")
     if c.get("max_attempts", 1) > 10000:
         raise ValueError("max_attempts must be in [1, 10000]")
     if "series_count" in c:
@@ -65,8 +71,9 @@ def normalize_controls(kind, controls):
             raise ValueError(f"scatter_n point_count is the total across series and must be in [{minimum}, 48]")
     if "x_mode" in c and (not kind.startswith("line") or c["x_mode"] not in {"numeric", "categorical", "temporal"}):
         raise ValueError("x_mode is numeric/categorical/temporal and applies only to line templates")
-    if "stack_mode" in c and (kind not in {"barv_stack", "barh_stack"} or c["stack_mode"] not in {"absolute", "percent"}):
-        raise ValueError("stack_mode is absolute/percent and applies only to barv_stack")
+    stack_modes = {"barv_stack": ("absolute", "percent"), "barh_stack": ("absolute",)}
+    if "stack_mode" in c and c["stack_mode"] not in stack_modes.get(kind, ()):
+        raise ValueError("stack_mode accepts absolute or percent for barv_stack and only absolute for barh_stack")
     if "profile" in c and (c["profile"] not in PROFILES or (c["profile"] == "dense_scatter_family" and not kind.startswith("scatter"))):
         raise ValueError(f"Invalid profile for {kind}")
     if "show_error" in c and (not kind.startswith("bar") or kind in {"barv_stack", "barh_stack"} or not isinstance(c["show_error"], bool)):

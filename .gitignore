@@ -17,6 +17,7 @@
 !/native.py
 !/pipeline.py
 !/plot_layout.py
+!/precision.py
 !/presentation.py
 !/text_layout.py
 !/render.mjs

@@ -1,17 +1,42 @@
 """Native, independently renderable pie and precomputed box plot specifications."""
 import copy
+from decimal import Decimal
 import json
 import math
-from decimal import Decimal
 
 from generation.summaries import canonical_numbers
+from precision import PERCENT_FORMAT, PERCENT_SPECIFIER, box_projection, ordered_projection
 from spec_format import format_spec
 from table_metadata import attach_tables
 
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
+LEGACY_PIE_METRIC_TITLES = {"Share (%)", "Value"}
 
 
-def _spec(kind, rows, options):
+def _pie_metric_title(title):
+    if isinstance(title, str) and (not title.strip() or title.strip() in LEGACY_PIE_METRIC_TITLES):
+        return None
+    return title
+
+
+def pie_value_error(values, percent_total=None):
+    if not all(type(value) in (int, float) and math.isfinite(value) and value >= 0 for value in values):
+        return "Pie values must be finite and nonnegative"
+    if not any(value > 0 for value in values):
+        return "Pie values must have a positive total"
+    if percent_total is not None and not math.isclose(sum(values), percent_total):
+        return f"Percentage pie must sum to {percent_total}"
+    return None
+
+
+def _pie_percent_format(theta):
+    fmt = theta.get("format")
+    if isinstance(fmt, str) and theta.get("formatType", "number") == "number" and PERCENT_SPECIFIER.fullmatch(fmt):
+        return fmt
+    return None
+
+
+def _spec(kind, rows, options, axes):
     categories = [row["category"] for row in rows]
     size = options["size"]
     result = {"$schema": SCHEMA, "title": options["title"], "data": {"values": copy.deepcopy(rows)},
@@ -22,18 +47,27 @@ def _spec(kind, rows, options):
         radius = size * .34
         inner = radius * options["hole_ratio"] if options["donut"] else 0
         percentage = options["value_mode"] == "percent"
-        number = "format(datum.value, '.0%')" if percentage else "format(datum.value, '~g')"
+        percent_format = options.get("percent_format", PERCENT_FORMAT)
+        number = f"format(datum.value, '{percent_format}')" if percentage else "format(datum.value, '~g')"
         label_mode = options["label_mode"]
-        if label_mode == "legend_value" and color["legend"] is not None:
-            labels = {row["category"]: row["category"] + ": " + (format(row["value"], ".0%") if percentage else format(row["value"], "g")) for row in rows}
+        zero_categories = [row["category"] for row in rows if row["value"] == 0]
+        if color["legend"] is not None and (label_mode == "legend_value" or zero_categories):
+            labels = {}
+            for row in rows:
+                label = row["category"]
+                if label_mode == "legend_value" or row["value"] == 0:
+                    label += ": " + pie_label(row["value"], percentage, percent_format)
+                labels[row["category"]] = label
             color["legend"]["labelExpr"] = "(" + json.dumps(labels) + ")[datum.label]"
         for index, row in enumerate(result["data"]["values"]):
             row["sector_order"] = index
         order = {"field": "sector_order", "type": "quantitative", "sort": "ascending"}
         theta = {"field": "value", "type": "quantitative", "stack": True,
-                 "title": ("占比 (%)" if percentage else "数值") if options.get("language") == "zh"
-                 else ("Share (%)" if percentage else "Value"),
+
                  "scale": {"range": [options["rotation"], options["rotation"] + 2 * math.pi]}}
+        metric_title = _pie_metric_title(options.get("value_title"))
+        if metric_title:
+            theta["title"] = metric_title
         result.update(encoding={"theta": theta, "color": color, "order": order},
                       layer=[{"name": "sectors", "mark": {"type": "arc", "innerRadius": inner, "outerRadius": radius}}])
         if label_mode not in {"legend_value", "none"}:
@@ -52,6 +86,20 @@ def _spec(kind, rows, options):
                 label_mark["align"] = {"expr": "(" + json.dumps(alignments) + ")[datum.category]"}
             result["layer"].append({"name": "sector_labels", "mark": label_mark,
                                     "encoding": {"text": {"value": {"expr": expression}}, "color": {"value": "#111827"}}})
+        if zero_categories:
+            # Keep degenerate arcs from painting radial strokes, and avoid coincident numeric labels.
+            for layer in result["layer"]:
+                layer["transform"] = [{"filter": "datum.value > 0"}]
+            if color["legend"] is None:
+                # Autosize includes text below the plot without shifting the pie's center.
+                positions = {category: size + 8 + 18 * index for index, category in enumerate(zero_categories)}
+                result["layer"].append({
+                    "name": "zero_labels", "transform": [{"filter": "datum.value === 0"}],
+                    "mark": {"type": "text", "align": "center", "baseline": "top", "fontSize": 11,
+                             "x": size / 2, "y": {"expr": "(" + json.dumps(positions) + ")[datum.category]"}},
+                    "encoding": {"theta": {"value": 0}, "color": {"value": "#111827"},
+                                 "text": {"value": {"expr": "datum.category + ': ' + " + number}}},
+                })
     else:
         horizontal = options["orientation"] == "horizontal"
         category_axis, value_axis = ("y", "x") if horizontal else ("x", "y")
@@ -63,9 +111,13 @@ def _spec(kind, rows, options):
             result["width"] = max(size, len(rows) * 82)
         orient = "vertical" if horizontal else "horizontal"
         box_size = options["box_size"]
+        guide = {"title": options["value_title"]}
+        axis_format = axes.get(f"{value_axis}_format")
+        if axis_format is not None:
+            guide["format"] = axis_format
         def position(field):
             return {"field": field, "type": "quantitative", "scale": {"zero": False},
-                    "axis": {"title": options["value_title"]}}
+                    "axis": dict(guide)}
         result["layer"] = [
             {"name": "whiskers", "mark": {"type": "rule"}, "encoding": {value_axis: position("lower"), value_axis + "2": {"field": "upper"}}},
             {"name": "boxes", "mark": {"type": "bar", "size": box_size, "orient": options["orientation"]},
@@ -122,8 +174,16 @@ def compact_spec(full):
     if title:
         result["title"] = copy.deepcopy(title)
     if semantic["kind"] == "pie":
+        fmt = _pie_percent_format(full.get("encoding", {}).get("theta", {}))
+        theta_encoding = {"field": "value", "type": "quantitative", **_field_semantics(full, "theta")}
+        if _pie_metric_title(theta_encoding.get("title")) is None:
+            theta_encoding.pop("title", None)
+        if fmt is not None:
+            theta_encoding["format"] = fmt
+        elif options.get("value_mode") == "percent":
+            theta_encoding["format"] = options.get("percent_format", PERCENT_FORMAT)
         result.update(mark={"type": "arc"},
-                      encoding={"theta": {"field": "value", "type": "quantitative", **_field_semantics(full, "theta")},
+                      encoding={"theta": theta_encoding,
                                 "color": {"field": "category", "type": "nominal", **_field_semantics(full, "color")}})
         return format_spec(attach_tables(result))
     horizontal = options["orientation"] == "horizontal"
@@ -189,20 +249,21 @@ def validate_compact(spec):
     check(all(set(point) == {"category", "value"} and point["category"] in categories
               and type(point["value"]) in (int, float) and math.isfinite(point["value"]) for point in points),
           "invalid outlier row")
-    for row in rows:
-        values = [row["value"]] if kind == "pie" else [row[key] for key in ("lower", "q1", "median", "q3", "upper")]
-        check(all(type(value) in (int, float) and math.isfinite(value) for value in values), "finite numbers required")
-        if kind == "pie":
-            check(row["value"] > 0, "positive sector values")
-        else:
+    enc = spec.get("encoding", {})
+    check(isinstance(enc, dict) and all(isinstance(value, dict) for value in enc.values()), "encoding objects")
+    options = {"title": spec.get("title")}
+    if kind == "pie":
+        total = 1 if _pie_percent_format(enc.get("theta", {})) is not None else None
+        error = pie_value_error([row["value"] for row in rows], total)
+        check(error is None, error)
+    else:
+        for row in rows:
+            values = [row[key] for key in ("lower", "q1", "median", "q3", "upper")]
+            check(all(type(value) in (int, float) and math.isfinite(value) for value in values), "finite numbers required")
             lower, q1, median, q3, upper = [Decimal(str(row[key])) for key in ("lower", "q1", "median", "q3", "upper")]
             low, high = q1 - Decimal("1.5") * (q3 - q1), q3 + Decimal("1.5") * (q3 - q1)
             check(low <= lower <= q1 <= median <= q3 <= upper <= high, "five-number ordering/fences")
             check(all(Decimal(str(value)) < low or Decimal(str(value)) > high for value in (point["value"] for point in points if point["category"] == row["category"])), "outliers inside fences")
-    enc = spec.get("encoding", {})
-    check(isinstance(enc, dict) and all(isinstance(value, dict) for value in enc.values()), "encoding objects")
-    options = {"title": spec.get("title")}
-    if kind == "boxplot":
         horizontal = enc.get("y", {}).get("field") == "category"
         options["orientation"] = "horizontal" if horizontal else "vertical"
         layers = spec.get("layer")
@@ -212,27 +273,57 @@ def validate_compact(spec):
     expected = compact_spec(full)
     if "usermeta" not in spec:
         expected.pop("usermeta")
-    check(format_spec(spec) == expected, "unnecessary settings or incorrect statistical mapping")
+    actual = format_spec(spec)
+    if kind == "pie":
+        theta = actual.get("encoding", {}).get("theta", {})
+        title = theta.get("title")
+        if isinstance(title, str) and title.strip() in LEGACY_PIE_METRIC_TITLES:
+            # Compact-only archives remain readable without rewriting the original spec.
+            del theta["title"]
+    check(actual == expected, "unnecessary settings or incorrect statistical mapping")
 
 
-def build_pair(kind, cfg):
+def pie_label(value, percentage, percent_format=None):
+    if percentage and percent_format:
+        text = format(Decimal(str(value)).scaleb(2), "f")
+        return (text.rstrip("0").rstrip(".") if "." in text else text) + "%"
+    return format(value, ".0%" if percentage else "g")
+
+
+def final_rows(kind, cfg, precision_v1=False):
+    rows = canonical_numbers(cfg["rows"])
+    if precision_v1 and kind == "boxplot":
+        return [box_projection(row) for row in rows]
+    if precision_v1 and kind == "pie" and cfg["value_mode"] == "absolute":
+        return [dict(row, value=value) for row, value in zip(rows, ordered_projection([row["value"] for row in rows]))]
+    return rows
+
+
+def build_pair(kind, cfg, *, precision_v1=False):
     from presentation import apply_presentation
     from text_layout import apply_text_layout, fit_category_axis
     cfg = copy.deepcopy(cfg)
-    cfg["rows"] = canonical_numbers(cfg["rows"])
     options = {key: cfg[key] for key in OPTION_KEYS if key in cfg}
     if cfg.get("sampling", {}).get("language") == "zh":
         options["language"] = "zh"
-    rows = copy.deepcopy(cfg["rows"])
+    rows = final_rows(kind, cfg, precision_v1)
     if kind == "pie":
-        for row in rows:
-            if options["value_mode"] == "percent":
+        percentage = options["value_mode"] == "percent"
+        error = pie_value_error([row["value"] for row in rows], 100 if percentage else None)
+        if error is not None:
+            raise ValueError(error)
+        if percentage:
+            for row in rows:
                 row["value"] = float(Decimal(str(row["value"])) / 100)
-    full = _spec(kind, rows, options)
+            digits = max((len(Decimal(str(row["value"])).normalize().as_tuple().digits) for row in rows), default=4)
+            options["percent_format"] = PERCENT_FORMAT if digits <= 4 else f".{digits}~p"
+    full = _spec(kind, rows, options, cfg.get("_render_axes") or {})
     if ratio := cfg.get("layout_ratio"):
         full["width"] = max(full["width"], round(full["height"] * ratio))
     semantic = {"kind": kind, "options": options}
     full["usermeta"] = {"semantic": semantic}
+    if precision_v1:
+        full["usermeta"]["precision_version"] = 1
     full["title"] = {"text": cfg["title"], "fontSize": cfg["style"].get("title_size", 18),
                      "color": cfg["style"].get("text_color", "#111827")}
     full["config"] = {"view": {"stroke": None}}
@@ -260,10 +351,10 @@ def build_pair(kind, cfg):
             layer["encoding"]["color"] = {"value": text_color}
         if layer["name"] == "sectors":
             layer["mark"].update(stroke=full["background"], strokeWidth=cfg["style"].get("line_width", 1))
-        if layer["name"] == "sector_labels":
+        if layer["name"] in {"sector_labels", "zero_labels"}:
             layer["mark"].update(font=font["family"], fontWeight=font["weight"], fontStyle=font["style"])
             layer["encoding"]["color"] = {"value": text_color}
-            if cfg["label_mode"] == "value":
+            if layer["name"] == "sector_labels" and cfg["label_mode"] == "value":
                 from PIL import ImageColor
                 contrast = {}
                 for row, color in zip(rows, colors):

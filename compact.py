@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from collections import Counter
 import copy
+from decimal import Decimal
 import json
 import math
+import re
 from typing import Any
 
 from ordering import first_seen, needs_path_order, needs_stack_endpoints, visual_rows
@@ -14,6 +16,9 @@ from identity import IDENTITIES, ROW_FIELDS, migrate_spec, order_row
 
 KINDS = {"barh_1", "barh_n", "barv_1", "barv_n", "barv_stack", "barh_stack",
          "line_1", "line_n", "scatter_1", "scatter_n"}
+_PERCENT_SUFFIX = re.compile(
+    r'''(?:datum\.value|format\(\s*datum\.value\s*,\s*(['"])~g\1\s*\))\s*\+\s*(['"])%\2'''
+)
 
 
 def _semantic(spec: dict) -> dict | None:
@@ -48,6 +53,19 @@ def _decode(expr: str, value: Any) -> Any:
     return json.loads(expr[:-len(suffix)])[int(value)]
 
 
+def _legacy_percent_axis(definition: dict) -> bool:
+    """Recognize legacy numeric tick labels that append `%` without scaling."""
+    axis = definition.get("axis") or {}
+    expression = axis.get("labelExpr")
+    return (axis.get("labels", True) and axis.get("format") is None
+            and axis.get("formatType", "number") == "number"
+            and isinstance(expression, str) and _PERCENT_SUFFIX.fullmatch(expression.strip()) is not None)
+
+
+def _percent_fraction(value: float | int) -> float:
+    return float(Decimal(str(value)) / 100)
+
+
 def _context(full: dict, version: int = 4) -> dict:
     semantic = _semantic(full)
     if semantic is None or semantic["kind"] not in KINDS:
@@ -67,11 +85,19 @@ def _context(full: dict, version: int = 4) -> dict:
     _, repeated_series = _mapping(series_keys, [series_names[key] for key in series_keys])
     include_series = version == 3 or visible_legend or len(series_keys) > 1
     category_field = "category" if kind.startswith("bar") else "x" if kind.startswith("line") and semantic.get("x_mode") != "numeric" else None
+    if kind.startswith("bar"):
+        value_axis = "x" if kind.startswith("barh") else "y"
+        numeric_fields = {value_axis: ("value", "lower", "upper", "start", "end")}
+    else:
+        numeric_fields = {"y": ("y",)} if category_field else {"x": ("x",), "y": ("y",)}
+    percent_axes = {axis for axis in numeric_fields if _legacy_percent_axis(enc.get(axis, {}))}
+    percent_fields = {field for axis in percent_axes for field in numeric_fields[axis]}
     category_keys = first_seen(rows, "category_id") if category_field else []
     category_visual = first_seen(sorted(rows, key=lambda r: r["plot_x"] * (-1 if (enc.get("x", {}).get("scale") or {}).get("reverse") else 1)), "category_id") if kind.startswith("line") and category_field else category_keys
     categories = {row["category_id"]: row["category"] for row in rows} if category_field else {}
     _, repeated_category = _mapping(category_keys, [categories[key] for key in category_keys])
     return {"kind": kind, "semantic": semantic, "rows": rows, "encoding": enc,
+            "percent_axes": percent_axes, "percent_fields": percent_fields,
             "semantic_labels": full.get("usermeta", {}).get("semantic_labels", {}),
             "series_keys": series_keys, "series_names": series_names,
             "series_index": {key: i for i, key in enumerate(series_keys)},
@@ -110,6 +136,8 @@ def _data(context: dict, canonical: bool = True) -> list[dict]:
                 result.update(start=row["value_lower"], end=row["value_upper"])
             else:
                 result["stack_order"] = row["series_index"]
+        for field in context["percent_fields"] & result.keys():
+            result[field] = _percent_fraction(result[field])
         output.append(order_row(result))
     return output
 
@@ -132,11 +160,16 @@ def _axis_encoding(context: dict, channel: str, field: str, data_type: str) -> d
                               for key in context["category_visual"]]
     else:
         axis = original.get("axis") or {}
+        legacy_percent = channel in context["percent_axes"]
         if unit_format(axis.get("format"), axis.get("formatType", "number")):
             result["axis"] = {"format": axis["format"]}
+        elif legacy_percent:
+            result["axis"] = {"format": "~%"}
         scale = original.get("scale") or {}
         semantic_scale = {k: scale[k] for k in ("type", "base", "exponent", "constant")
                           if k in scale and (k != "type" or scale[k] != "linear")}
+        if legacy_percent and semantic_scale.get("type") == "symlog":
+            semantic_scale["constant"] = _percent_fraction(semantic_scale.get("constant", 1))
         if semantic_scale:
             result["scale"] = semantic_scale
         if context["kind"].startswith("line") and channel == "x" and scale.get("reverse"):

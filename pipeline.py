@@ -13,6 +13,7 @@ import traceback
 from generation import GENERATOR_VERSION, KINDS
 from generation.sampling_policy import plan
 from adapter import VERSION as PROJECTION_VERSION
+from precision import PRECISION_VERSION
 from workflow.config import ROOT, CONTRACT, load_config, task_seed
 from workflow.io import canonical, digest, dump, jsonl, read
 from workflow.validation import validate
@@ -61,7 +62,7 @@ def produce(task):
     try:
         result = obtain_sample(task)
         cfg = result['config']
-        full, compact, source = build_pair(task['kind'], cfg)
+        full, compact, source = build_pair(task['kind'], cfg, precision_v1=True)
         if normalize(full) != compact or normalize(compact) != compact:
             raise ValueError('Full-to-compact mapping/idempotence failed')
         dump(out / 'full.vl.json', full)
@@ -106,7 +107,7 @@ def generate(args):
         if previous['config_sha256'] != fingerprint:
             raise ValueError('Resume config differs from original run')
     out.mkdir(parents=True, exist_ok=True)
-    dump(out / 'run.json', {'config': cfg, 'config_sha256': fingerprint, 'generator_version': GENERATOR_VERSION, 'projection_version': PROJECTION_VERSION, 'operation': 'generate', 'contract': CONTRACT, 'python': sys.version, 'command': sys.argv})
+    dump(out / 'run.json', {'config': cfg, 'config_sha256': fingerprint, 'generator_version': GENERATOR_VERSION, 'projection_version': PROJECTION_VERSION, 'precision_version': PRECISION_VERSION, 'operation': 'generate', 'contract': CONTRACT, 'python': sys.version, 'command': sys.argv})
     tasks, records = [], []
     for kind, count in cfg['counts'].items():
         for index in range(count):
@@ -173,7 +174,7 @@ def reproject(args):
         render_config = config
         if (target / 'presentation.native.json').is_file():
             render_config = {**config, '_render_axes': read(target / 'presentation.native.json')}
-        full, compact, source = build_pair(old['kind'], render_config)
+        full, compact, source = build_pair(old['kind'], render_config, precision_v1=previous.get('precision_version') == PRECISION_VERSION)
         if normalize(full) != compact or normalize(compact) != compact:
             raise ValueError(f'Noncanonical compact: {old["id"]}')
         for name, value in [('full.vl.json', full), ('compact.vl.json', compact), ('source.json', source)]:

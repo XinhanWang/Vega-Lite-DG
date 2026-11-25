@@ -243,6 +243,15 @@ def audit_text(spec: dict, svg_text: str) -> dict:
 
     for offset in spec.get("usermeta", {}).get("presentation", {}).get("axis_offsets", {}).values():
         add("mark", offset)
+    semantic = spec.get("usermeta", {}).get("semantic", {})
+    options = semantic.get("options", {})
+    zero_labels = []
+    if semantic.get("kind") == "pie":
+        zero_label = "0%" if options["value_mode"] == "percent" else "0"
+        zero_labels = [f"{row['category']}: {zero_label}" for row in spec["data"]["values"] if row["value"] == 0]
+        role = "legend-label" if options["show_legend"] else "mark"
+        for label in zero_labels:
+            add(role, label)
 
     def visit(node: dict, inherited_values: list[dict]) -> None:
         values = node.get("data", {}).get("values", inherited_values)
@@ -335,4 +344,6 @@ def audit_text(spec: dict, svg_text: str) -> dict:
             "expected_by_role": {role: len(labels) for role, labels in expected.items()},
             "visible_by_role": {role: len(labels) for role, labels in visible.items()},
             "new_ellipsis_count": len(new_ellipses), "unsupported_expressions": sorted(set(unsupported)),
-            "comparison": "Unicode characters preserved, whitespace ignored across native SVG tspans; only declared ticks/legend values require coverage"}
+            "comparison": "Unicode characters preserved, whitespace ignored across native SVG tspans; "
+                          + ("declared ticks, legend values and zero-value pie labels require coverage" if zero_labels
+                             else "only declared ticks/legend values require coverage")}

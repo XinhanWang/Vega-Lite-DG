@@ -29,7 +29,7 @@ full, compact, source = build_pair("line_n", sample["config"])
 | `family` | 必须属于该类型在 `FAMILIES` 中声明的数据族 |
 | `profile` | 声明的视觉 profile；`dense_scatter_family` 仅用于散点 |
 | `x_mode` | 折线的 `numeric` / `categorical` / `temporal` |
-| `stack_mode` | 堆叠柱图的 `absolute` / `percent` |
+| `stack_mode` | 纵向堆叠支持 `absolute` 和 `percent`，横向堆叠仅支持 `absolute` |
 | `show_error` | 非堆叠柱图误差棒，布尔值 |
 | `hatch` | 柱形纹理：null、`/`、`\`、`|`、`-`、`+`、`x`、`o`、`O`、`.`、`*` |
 | `show_legend` | 是否显示图例，布尔值 |
@@ -62,6 +62,16 @@ full, compact, source = build_pair("line_n", sample["config"])
 - 重复类别/系列保留原文，以 `category_id=C1…`、离散 X 的 `x_id=X1…`、`series_id=S1…` 区分实际对象；仅对应维度实际重名时整列加入。Renderer 在副本中生成 `labelExpr`，表达式不进入 GT。完整字段顺序、稳定工程 key 与旧字段迁移见 [GT 身份契约](gt-identity-contract.md)。
 
 `normalize(full)` 构造 GT，`normalize(compact)` 幂等。`project_rows(full) == semantic_rows(compact)` 比较的是同一可见顺序下的观察、重复身份和必要连接信息。只有视觉样式变化而可见语义不变时，GT 才保持一致；改变坐标方向、图例可见性等会相应改变 GT。
+
+## Precision V1
+
+新生产运行在原始采样、堆叠端点和误差统计确定后，以十进制中点远离零规则量化连续数值，默认四位有效数字。整数计数、离散标签、身份和顺序保持原值。数值轴需要区分相邻观察或保持区间及统计关系时提高精度。普通堆叠共享边界按同一映射处理，段值从最终边界求差。百分比堆叠保留原有存储约定。热力图、面积图和直方图由 Studio 支持，DG 原生管线不采样这些图表。现有雷达图及柱线复合图扩展的数据为整数。
+
+Full 渲染、Compact GT 和共享 Markdown/CSV 导出使用同一最终科学数据。原始采样配置保留用于复核。`pipeline.py generate` 默认启用 Precision V1；`build_pair(..., precision_v1=True)` 可显式启用。历史重投影按源运行的精度版本处理。Compact-only 投影保留旧数值和已声明格式。
+
+普通百分数轴的数据、刻度值和坐标范围使用比例，例如 `0.176`。新图的显式百分数轴在 `_render_axes.x_format` 或 `_render_axes.y_format` 使用 `.4~p`，需要更高显示精度时使用 `.N~p`。Full 和 Compact 都通过 `axis.format` 显示百分号。只有标题含 `(%)` 时，数据保留原量纲，省略百分比格式。旧 Full 的简单百分比刻度后缀表达式仍沿用历史兼容投影。
+
+箱线图横向读取 `_render_axes.x_format`，纵向读取 `_render_axes.y_format`。格式应用于数值轴，五数统计、须线和离群点继续使用同一套比例值。
 
 ## 类别标签与隐藏图例
 
