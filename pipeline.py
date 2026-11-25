@@ -92,8 +92,11 @@ def generate(args):
         if args.workers < 1:
             raise ValueError('workers must be positive')
         cfg['workers'] = args.workers
+    first_index = getattr(args, 'start_index', 0)
+    if first_index < 0:
+        raise ValueError('start-index must be nonnegative')
     out = Path(args.output).resolve()
-    fingerprint = digest(cfg)
+    fingerprint = digest({'config': cfg, 'start_index': first_index}) if first_index else digest(cfg)
     if out.exists() and any(out.iterdir()):
         if not args.resume:
             raise ValueError('Output directory is not empty. Select a new run or use --resume with identical config.')
@@ -111,7 +114,7 @@ def generate(args):
     dump(out / 'run.json', {'config': cfg, 'config_sha256': fingerprint, 'generator_version': GENERATOR_VERSION, 'projection_version': PROJECTION_VERSION, 'precision_version': PRECISION_VERSION, 'operation': 'generate', 'contract': CONTRACT, 'python': sys.version, 'command': sys.argv})
     tasks, records = [], []
     for kind, count in cfg['counts'].items():
-        for index in range(count):
+        for index in range(first_index, first_index+count):
             sample_id = f'{kind}-{index:06d}'
             sample = out / 'samples' / sample_id
             if args.resume and (sample / 'record.json').exists():
@@ -224,6 +227,7 @@ def main():
     gen.add_argument('--output', required=True)
     gen.add_argument('--resume', action='store_true')
     gen.add_argument('--workers', type=int)
+    gen.add_argument('--start-index', type=int, default=0)
     gen.add_argument('--node')
     val = sub.add_parser('validate')
     val.add_argument('--output', required=True)

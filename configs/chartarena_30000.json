@@ -1,0 +1,170 @@
+{
+  "seed": 20261125,
+  "counts": {
+    "barh_1": 3000,
+    "barh_n": 3600,
+    "barv_1": 7200,
+    "barv_n": 8400,
+    "barv_stack": 5100,
+    "barh_stack": 2700,
+    "line_1": 9600,
+    "line_n": 20400,
+    "scatter_1": 15000,
+    "scatter_n": 15000,
+    "pie": 30000,
+    "boxplot": 30000,
+    "radar": 30000,
+    "combination": 30000
+  },
+  "sampling": {
+    "text_profile": "expanded-v1",
+    "zh_probability": 0.5,
+    "label_probability": {
+      "barh_1": 0.25,
+      "barh_n": 0.25,
+      "barh_stack": 0.25,
+      "barv_1": 0.25,
+      "barv_n": 0.25,
+      "barv_stack": 0.25,
+      "line_1": 0.25,
+      "line_n": 0.25,
+      "pie": 0.25,
+      "combination": 0.25,
+      "radar": 0.25
+    },
+    "weighted": {
+      "all": {
+        "profile": [
+          {
+            "value": "publication_clean",
+            "weight": 4
+          },
+          {
+            "value": "compact_report",
+            "weight": 3
+          },
+          {
+            "value": "monochrome_minimal",
+            "weight": 2
+          },
+          {
+            "value": "colorful_analytic",
+            "weight": 3
+          },
+          {
+            "value": "editorial",
+            "weight": 2
+          },
+          {
+            "value": "dark_contrast",
+            "weight": 1
+          }
+        ]
+      },
+      "barh_stack": {
+        "stack_mode": [
+          {
+            "value": "absolute",
+            "weight": 3
+          },
+          {
+            "value": "percent",
+            "weight": 1
+          }
+        ]
+      },
+      "barv_stack": {
+        "stack_mode": [
+          {
+            "value": "absolute",
+            "weight": 3
+          },
+          {
+            "value": "percent",
+            "weight": 1
+          }
+        ]
+      },
+      "line_1": {
+        "x_mode": [
+          {
+            "value": "categorical",
+            "weight": 4
+          },
+          {
+            "value": "temporal",
+            "weight": 2
+          },
+          {
+            "value": "numeric",
+            "weight": 4
+          }
+        ]
+      },
+      "line_n": {
+        "x_mode": [
+          {
+            "value": "categorical",
+            "weight": 4
+          },
+          {
+            "value": "temporal",
+            "weight": 2
+          },
+          {
+            "value": "numeric",
+            "weight": 4
+          }
+        ]
+      },
+      "pie": {
+        "value_mode": [
+          {
+            "value": "percent",
+            "weight": 3
+          },
+          {
+            "value": "absolute",
+            "weight": 2
+          }
+        ]
+      },
+      "radar": {
+        "variant": [
+          {
+            "value": "line",
+            "weight": 5
+          },
+          {
+            "value": "filled",
+            "weight": 3
+          },
+          {
+            "value": "polar_bar",
+            "weight": 1
+          },
+          {
+            "value": "stacked_polar_bar",
+            "weight": 1
+          }
+        ]
+      },
+      "combination": {
+        "dual_axis": [
+          {
+            "value": true,
+            "weight": 1
+          },
+          {
+            "value": false,
+            "weight": 1
+          }
+        ]
+      }
+    }
+  },
+  "workers": 2,
+  "target_side": 1036,
+  "notes": "PR #3 general diversity sampling and Precision V2, 30,000 charts in each of seven families.",
+  "render_workers": 3
+}

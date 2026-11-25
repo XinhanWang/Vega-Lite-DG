@@ -12,9 +12,10 @@ import {Resvg} from '@resvg/resvg-js';
 import * as vega from 'vega';
 import * as vl from 'vega-lite';
 
-const [configFile, output] = process.argv.slice(2);
+const [configFile, output, startArg = '0'] = process.argv.slice(2);
+const firstIndex = Number(startArg);
 if (!configFile || !output) {
-  throw new Error('Usage: node generate_chartarena_extensions.mjs CONFIG OUTPUT');
+  throw new Error('Usage: node generate_chartarena_extensions.mjs CONFIG OUTPUT [START_INDEX]');
 }
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
@@ -72,7 +73,7 @@ const appearances = {
 };
 const appearance = item => appearances[item?.choices.profile] ?? appearances.publication_clean;
 const {radar, combination} = config.counts;
-for (const value of [config.seed, radar, combination, config.target_side]) {
+for (const value of [config.seed, radar, combination, config.target_side, firstIndex]) {
   assert(Number.isSafeInteger(value) && value >= 0, 'Expected nonnegative integer counts');
 }
 assert(config.target_side >= 64, 'target_side must be at least 64');
@@ -431,8 +432,8 @@ async function renderCombination(index, item, {compact, sampling, precision}) {
     item, {...sampling, ...precision, profile, aspect_ratio: aspect, value_labels: options.labels});
 }
 
-for (let start = 0; start < radar; start += batchSize) {
-  const items = planBatch('radar', start, Math.min(batchSize, radar - start));
+for (let start = firstIndex; start < firstIndex + radar; start += batchSize) {
+  const items = planBatch('radar', start, Math.min(batchSize, firstIndex + radar - start));
   const targets = finalTargets('radar', start, items, radarSpec);
   for (const [offset, {compact, radar, precision}] of targets.entries()) {
     const item = items[offset];
@@ -443,8 +444,8 @@ for (let start = 0; start < radar; start += batchSize) {
       {...precision, variant: radar.variant});
   }
 }
-for (let start = 0; start < combination; start += batchSize) {
-  const items = planBatch('combination', start, Math.min(batchSize, combination - start));
+for (let start = firstIndex; start < firstIndex + combination; start += batchSize) {
+  const items = planBatch('combination', start, Math.min(batchSize, firstIndex + combination - start));
   const targets = finalTargets('combination', start, items, (_, item, rand) => sampleCombination(item, rand));
   for (const [offset, target] of targets.entries()) {
     await renderCombination(start + offset, items[offset], target);

@@ -115,3 +115,12 @@
 
 !/png_metadata.mjs
 !/radar_render.mjs
+
+!/configs/chartarena_200.json
+!/configs/chartarena_1000.json
+!/configs/chartarena_1000_mp.json
+!/configs/chartarena_30000.json
+
+!/tools/
+/tools/*
+!/tools/generate_chartarena_mp.py

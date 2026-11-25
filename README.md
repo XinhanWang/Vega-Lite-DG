@@ -201,3 +201,18 @@ Serialize every view and layer with position channels before visual channels: `x
 
 
 2026-11-16：散点导出自动规范化；折线仅在真实路径 X 回退时保留 path_order，重复 X 不触发；逆向数值 X 保留 scale.reverse:true，回退的离散 X 保留显式位置顺序。详见 docs/point-line-contract.md。
+
+### ChartArena 多样性批量生产
+
+`configs/chartarena_200.json`、`configs/chartarena_1000.json`（也可用
+`configs/chartarena_1000_mp.json`）及 `configs/chartarena_30000.json` 按七个大类分配样本。
+它们共用 ChartArena 通用多样性策略和 Precision V2，生产种子独立于审查种子。
+
+```sh
+python3 tools/generate_chartarena_mp.py --config configs/chartarena_30000.json --output runs/v1
+```
+
+批量入口在同一目录汇总原生和扩展图，逐分片校验和提交，已提交的分片可用同一命令继续。
+默认同时运行 16 个原生分片与 6 个扩展分片，原生分片各用 2 个生成进程和 3 个渲染进程。
+训练清单 `train.jsonl` 的图像路径相对于输出根目录。通过校验的图型数量达到配置后写出
+`validation.json`，补生成前的拒收候选保留在 `rejected.jsonl`。
