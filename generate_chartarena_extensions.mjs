@@ -306,6 +306,7 @@ async function render(kind, index, compact, full, compiled, preview, item) {
   const fullName = kind === 'radar' ? 'full.vega.json' : 'full.vl.json';
   write(path.join(directory, fullName), full);
   write(path.join(directory, 'compact.vl.json'), compact);
+  write(path.join(directory, 'compact.preview.vega.json'), preview);
   writeTables(directory, compact);
   fs.writeFileSync(path.join(directory, 'chart.svg'), svg);
   fs.writeFileSync(path.join(directory, 'chart.png'), png);

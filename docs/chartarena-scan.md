@@ -5,6 +5,8 @@
 
 雷达图训练 GT 使用 `mark: {"type": "line"}` 和 `usermeta.chartType: "radar"`。多系列时用 `encoding.color` 区分系列。原图使用 Full Vega 规格，GT 对照图由 Compact GT 经雷达适配器单独渲染。
 
+扩展生成器还输出 `compact.preview.vega.json`，供审查站使用对应的 Vega 渲染规格。原生图表使用 `compact.preview.vl.json`。
+
 ```sh
 python3 bootstrap.py --with-cjk
 python3 pipeline.py generate --config configs/chartarena-scan.json --output runs/scan-native
