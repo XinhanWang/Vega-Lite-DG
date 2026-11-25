@@ -27,7 +27,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n", "barh_stack",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "3.4.0"
+VERSION = "3.5.2"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -315,7 +315,12 @@ def _axis(cfg: dict, axis: str, kind: str) -> dict:
     offset = axes.get(f"{axis}_offset_text", axes.get(f"{axis}offset", ""))
     discrete_labels = (kind.startswith("bar") and axis == category_axis) or (
         kind.startswith("line") and axis == "x" and cfg.get("x_mode", "numeric") != "numeric")
-    if ticks is not None and tick_labels is not None and categorical_labels and (discrete_labels or not offset):
+    axis_format = axes.get(f"{axis}_format")
+    if not discrete_labels and axis_format is not None:
+        result["format"] = axis_format
+        if ticks is not None:
+            result.update(labelOverlap=False, labelBound=False)
+    elif ticks is not None and tick_labels is not None and categorical_labels and (discrete_labels or not offset):
         if len(ticks) == len(tick_labels):
             result["labelExpr"] = _label_expr(ticks, tick_labels)
             result["labelOverlap"] = False
@@ -614,7 +619,7 @@ def _reference_layers(kind: str, cfg: dict, limits: dict, width: float, height: 
     return result
 
 
-def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> tuple[dict, dict, dict]:
+def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False, precision_v1: bool = False) -> tuple[dict, dict, dict]:
     """Return independently renderable full/compact specs and canonical evidence.
 
     ``cfg['_render_axes']`` retains the existing configuration schema for axis
@@ -627,6 +632,9 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
     cfg = _plain(cfg)
     names = _series_names(kind, cfg)
     rows = _rows(kind, cfg, names)
+    if precision_v1:
+        from precision import project_rows
+        project_rows(kind, rows, percent_stack=cfg.get("stack_mode") == "percent")
     limits = {axis: _limits(cfg, axis, rows, kind) for axis in ("x", "y")}
     style = cfg.get("style", {})
     figsize = style.get("figsize", [8, 5.5])
@@ -730,14 +738,14 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False) -> t
     return full, compact, source
 
 
-def build_pair(kind: str, cfg: dict) -> tuple[dict, dict, dict]:
+def build_pair(kind: str, cfg: dict, *, precision_v1: bool = False) -> tuple[dict, dict, dict]:
     """Render-ready full specification and minimal semantic training target."""
     if kind in {"pie", "boxplot"}:
         from statistical import build_pair as build_statistical_pair
-        return build_statistical_pair(kind, cfg)
+        return build_statistical_pair(kind, cfg, precision_v1=precision_v1)
     from text_layout import apply_text_layout
     from presentation import apply_presentation
-    full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True)
+    full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True, precision_v1=precision_v1)
     full['usermeta']['semantic_labels'] = {key: source[key] for key in ('title', 'x_title', 'y_title')}
     full = apply_text_layout(apply_presentation(full, cfg))
     source['presentation'] = copy.deepcopy(full['usermeta']['presentation'])

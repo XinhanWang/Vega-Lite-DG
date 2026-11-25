@@ -37,7 +37,7 @@ def validate(out):
     from PIL import Image
     from adapter import normalize
     from compact import project_rows, semantic_rows, validate_target
-    from compact_display import render_spec
+    from compact_display import render_spec, vega_lite_spec
     from text_layout import audit_text
     records = read(out / 'generation-manifest.json')
     run_metadata = read(out / 'run.json')
@@ -73,7 +73,8 @@ def validate(out):
                 errors.append('Compact preview differs from deterministic rendering projection')
             if preview['data'] != compact['data']:
                 errors.append('Compact preview changed the training observations')
-            for label, spec in [('full', full), ('compact', compact), ('compact-preview', preview)]:
+            # Compact's Pie format is checked by validate_target and projected to a legal channel for Schema validation.
+            for label, spec in [('full', full), ('compact', vega_lite_spec(compact)), ('compact-preview', preview)]:
                 for error in validator.iter_errors(spec):
                     errors.append(f'{label} schema: {error.message[:350]}')
             if normalize(full) != compact or normalize(compact) != compact:
@@ -99,7 +100,8 @@ def validate(out):
             if statistical:
                 from .statistical_validation import validate_statistics, audit_geometry
                 from statistical import outlier_rows
-                errors.extend(validate_statistics(row['kind'], read(sample / 'config.json'), source['rows'], outlier_rows(full)))
+                errors.extend(validate_statistics(row['kind'], read(sample / 'config.json'), source['rows'], outlier_rows(full),
+                                                  precision_v1=full.get('usermeta', {}).get('precision_version') == 1))
             text_audit = audit_text(full, (sample / 'chart.svg').read_text(encoding='utf-8'))
             dump(sample / 'text-audit.json', text_audit)
             errors.extend('full text: ' + message for message in text_audit['errors'])

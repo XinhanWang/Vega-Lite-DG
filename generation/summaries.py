@@ -80,7 +80,8 @@ def _box_observations(rng, family, mode):
 
 
 def sample(rng, kind, controls):
-    count = controls.get("category_count", rng.py.randint(2, 8))
+    zero_count = controls.get("zero_count", 0)
+    count = controls.get("category_count", rng.py.randint(max(2, zero_count + 1), 8))
     family = controls.get("family", rng.py.choice(FAMILIES[kind]))
     style = canvas(rng, kind, min(count, 5), count, controls)
     font = style["font_path"] if "font_path" in controls.get("style", {}) else str(
@@ -100,19 +101,26 @@ def sample(rng, kind, controls):
                    "long_tail": lambda: np.geomspace(5, .3, count),
                    "bimodal": lambda: np.array([4, 4] + [1] * (count - 2))}[family]()
         weights = rng.np.permutation(weights)
-        fractions = weights / weights.sum()
+        if zero_count:
+            weights[rng.np.choice(count, size=zero_count, replace=False)] = 0
+        positive = weights > 0
+        fractions = weights[positive] / weights.sum()
         mode = controls.get("value_mode", rng.py.choice(("percent", "absolute")))
         if mode == "percent":
-            quotas = fractions * (100 - 4 * count)
-            values = np.floor(quotas).astype(int) + 4
-            remainder = 100 - int(values.sum())
-            values[np.argsort(-(quotas - np.floor(quotas)), kind="stable")[:remainder]] += 1
+            quotas = fractions * (100 - 4 * (count - zero_count))
+            positive_values = np.floor(quotas).astype(int) + 4
+            remainder = 100 - int(positive_values.sum())
+            positive_values[np.argsort(-(quotas - np.floor(quotas)), kind="stable")[:remainder]] += 1
         else:
-            values = np.round((fractions + .035) * rng.py.choice((100, 500, 1000, 5000)), rng.py.choice((0, 1)))
+            positive_values = np.round((fractions + .035) * rng.py.choice((100, 500, 1000, 5000)), rng.py.choice((0, 1)))
+        values = np.zeros(count)
+        values[positive] = positive_values
         cfg.update(value_mode=mode, donut=controls.get("donut", rng.py.choice((True, False))),
                    label_mode=controls.get("label_mode", rng.py.choice(("legend_value", "value", "category_value"))),
                    rotation=rng.py.choice((0, .5, 1, 1.5)) * np.pi,
                    hole_ratio=rng.py.choice((.35, .5, .6)), title=rng.py.choice(("Category share", "Allocation", "Market composition")))
+        if "value_title" in controls:
+            cfg["value_title"] = controls["value_title"]
         if not cfg["show_legend"]:
             cfg["label_mode"] = "category_value"
         if count >= 7:

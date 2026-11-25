@@ -11,15 +11,36 @@ import json
 
 from compact import validate_target
 from identity import migrate_spec
+from precision import PERCENT_SPECIFIER
+from statistical import target_kind
+
+
+def vega_lite_spec(compact: dict) -> dict:
+    """Move the Compact Pie percentage format onto a Vega-Lite tooltip."""
+    result = copy.deepcopy(compact)
+    if result.get("mark") in ("arc", {"type": "arc"}):
+        encoding = result["encoding"]
+        theta = encoding["theta"]
+        if "format" in theta:
+            fmt = theta.pop("format")
+            encoding["tooltip"] = {**theta, "format": fmt}
+    return result
 
 
 def render_spec(compact: dict) -> dict:
     """Return a fresh Vega-Lite preview with identical observation data/order."""
     compact = migrate_spec(compact)
     validate_target(compact)
-    result = copy.deepcopy(compact)
+    result = vega_lite_spec(compact)
     rows = result["data"]["values"]
     enc = result["encoding"]
+    if target_kind(result) == "boxplot":
+        value_axis = "x" if enc.get("y", {}).get("field") == "category" else "y"
+        whisker = result["layer"][0]["encoding"][value_axis]
+        whisker.setdefault("title", None)
+        if PERCENT_SPECIFIER.fullmatch(whisker.get("axis", {}).get("format", "")):
+            # The whisker and outlier extent defines the preview range.
+            whisker["scale"] = {"zero": False}
     for channel, d in enc.items():
         if channel not in {"x2", "y2", "order", "xOffset", "yOffset"}:
             d.setdefault("title", None)
