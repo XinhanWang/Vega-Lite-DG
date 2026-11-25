@@ -18,7 +18,7 @@ class SemanticUnitTests(unittest.TestCase):
         validate_target(target)
 
     def test_pie_percent_uses_explicit_full_title_without_percent_format(self):
-        cfg = sample_config('pie', 51, {'category_count': 2, 'value_mode': 'percent'})
+        cfg = sample_config('pie', 51, {'category_count': 2, 'value_mode': 'percent', 'value_title': 'Observed share (%)'})
         cfg['rows'] = [dict(category=cfg['categories'][0], value=54),
                        dict(category=cfg['categories'][1], value=46)]
         full, target, source = build_pair('pie', cfg)
@@ -26,7 +26,7 @@ class SemanticUnitTests(unittest.TestCase):
         before = copy.deepcopy(full)
         target = normalize(full)
         self.assertEqual(target['encoding']['theta'],
-                         {'field': 'value', 'type': 'quantitative', 'title': 'Share (%)'})
+                         {'field': 'value', 'type': 'quantitative', 'title': 'Observed share (%)'})
         self.assertEqual(target['data']['values'][0]['value'], .54)
         self.assertNotIn('format', str(target['encoding']['theta']))
         self.assertEqual(full, before)
@@ -36,7 +36,7 @@ class SemanticUnitTests(unittest.TestCase):
         cfg = sample_config('pie', 51, {'category_count': 2, 'value_mode': 'absolute'})
         cfg['rows'] = [dict(category=category, value=value) for category, value in zip(cfg['categories'], (54, 46))]
         full, target, source = build_pair('pie', cfg)
-        self.assertEqual(target['encoding']['theta']['title'], 'Value')
+        self.assertNotIn('title', target['encoding']['theta'])
         self.assertNotIn('%', str(target))
         self.assert_fidelity(full, target)
 

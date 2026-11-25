@@ -39,7 +39,7 @@ class SamplingPolicyTest(unittest.TestCase):
     def test_rejects_unused_or_invalid_sampling_options(self):
         for policy, kinds in [
             ({"zh_probability": 1.1}, KINDS),
-            ({"label_probability": {"radar": .25}}, EXTENSIONS),
+            ({"label_probability": {"radar": 1.25}}, EXTENSIONS),
             ({"weighted": {"combination": {"series_count": [{"value": 3, "weight": 1}]}}}, EXTENSIONS),
             ({"weighted": {"all": {"profile": [{"value": "unknown", "weight": 1}]}}}, EXTENSIONS),
             ({"weighted": {"pie": {"donut": [{"value": True, "weight": 0}]}}}, KINDS),

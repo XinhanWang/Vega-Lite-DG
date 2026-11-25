@@ -7,6 +7,7 @@
  * A line item is a data vertex (zero-area bbox), not a fabricated point marker.
  */
 import fs from 'node:fs';
+import {pngAt200Dpi} from './png_metadata.mjs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath, pathToFileURL} from 'node:url';
@@ -573,6 +574,7 @@ async function renderVariant(job, variant, runtime, options) {
     const files = {svg: path.join(job.output, `${stem}.svg`), png: path.join(job.output, `${stem}.png`),
       geometry: path.join(job.output, `${geometryName}.json`)};
     atomicWrite(files.svg, canvas.svg);
+    raster.png = pngAt200Dpi(raster.png);
     atomicWrite(files.png, raster.png);
     atomicWrite(files.geometry, jsonText(geometry));
     Object.assign(result, {width: raster.width, height: raster.height, svg_width: canvas.width, svg_height: canvas.height,
@@ -589,6 +591,7 @@ async function renderVariant(job, variant, runtime, options) {
       const mapped = remapGeometry(geometry, transform, filename);
       files.resized_png = path.join(job.output, filename);
       files.resized_geometry = path.join(job.output, `${geometryName}.${options.size}.json`);
+      resized.png = pngAt200Dpi(resized.png);
       atomicWrite(files.resized_png, resized.png);
       atomicWrite(files.resized_geometry, jsonText(mapped));
       result.resize = {...transform, png_sha256: sha256(resized.png), validation: mapped.validation};

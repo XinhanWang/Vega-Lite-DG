@@ -9,20 +9,25 @@
     "text_profile": "expanded-v1",
     "zh_probability": 0.5,
     "label_probability": {
-      "combination": 0.25
+      "combination": 0.25,
+      "radar": 0.25
     },
     "weighted": {
       "radar": {
         "radial_max": [
-          {"value": 0.5, "weight": 6},
+          {"value": 0.1, "weight": 3},
+          {"value": 0.4, "weight": 4},
+          {"value": 0.5, "weight": 5},
           {"value": 1, "weight": 10},
           {"value": 3.5, "weight": 5},
-          {"value": 5, "weight": 12},
+          {"value": 5, "weight": 10},
           {"value": 6, "weight": 7},
-          {"value": 10, "weight": 16},
-          {"value": 20, "weight": 8},
-          {"value": 100, "weight": 27},
-          {"value": 120, "weight": 9}
+          {"value": 10, "weight": 14},
+          {"value": 20, "weight": 7},
+          {"value": 100, "weight": 22},
+          {"value": 120, "weight": 5},
+          {"value": 1000, "weight": 4},
+          {"value": 180000, "weight": 4}
         ],
         "profile": [
           {"value": "publication_clean", "weight": 44},
@@ -38,20 +43,86 @@
           {"value": 1.5, "weight": 20}
         ],
         "category_count": [
-          {"value": 4, "weight": 5},
-          {"value": 5, "weight": 15},
-          {"value": 6, "weight": 26},
-          {"value": 7, "weight": 19},
-          {"value": 8, "weight": 17},
-          {"value": 9, "weight": 8},
-          {"value": 10, "weight": 7},
-          {"value": 12, "weight": 3}
+          {"value": 4, "weight": 3},
+          {"value": 5, "weight": 10},
+          {"value": 6, "weight": 12},
+          {"value": 7, "weight": 8},
+          {"value": 8, "weight": 8},
+          {"value": 10, "weight": 6},
+          {"value": 12, "weight": 7},
+          {"value": 16, "weight": 8},
+          {"value": 20, "weight": 5},
+          {"value": 24, "weight": 10},
+          {"value": 28, "weight": 5},
+          {"value": 31, "weight": 10},
+          {"value": 36, "weight": 8}
         ],
         "series_count": [
-          {"value": 1, "weight": 45},
-          {"value": 2, "weight": 27},
-          {"value": 3, "weight": 17},
-          {"value": 4, "weight": 11}
+          {"value": 1, "weight": 38},
+          {"value": 2, "weight": 25},
+          {"value": 3, "weight": 15},
+          {"value": 4, "weight": 10},
+          {"value": 5, "weight": 5},
+          {"value": 6, "weight": 4},
+          {"value": 8, "weight": 3}
+        ],
+        "variant": [
+          {"value": "line", "weight": 46},
+          {"value": "filled", "weight": 34},
+          {"value": "polar_bar", "weight": 12},
+          {"value": "stacked_polar_bar", "weight": 8}
+        ],
+        "grid": [
+          {"value": "circle", "weight": 70},
+          {"value": "polygon", "weight": 30}
+        ],
+        "tick_count": [
+          {"value": 3, "weight": 12},
+          {"value": 4, "weight": 20},
+          {"value": 5, "weight": 35},
+          {"value": 6, "weight": 25},
+          {"value": 8, "weight": 8}
+        ],
+        "rotation": [
+          {"value": -90, "weight": 80},
+          {"value": 0, "weight": 10},
+          {"value": -60, "weight": 5},
+          {"value": 30, "weight": 5}
+        ],
+        "point": [
+          {"value": true, "weight": 45},
+          {"value": false, "weight": 55}
+        ],
+        "dashed": [
+          {"value": true, "weight": 15},
+          {"value": false, "weight": 85}
+        ],
+        "stroke_width": [
+          {"value": 1, "weight": 10},
+          {"value": 1.5, "weight": 25},
+          {"value": 2, "weight": 40},
+          {"value": 2.5, "weight": 20},
+          {"value": 3, "weight": 5}
+        ],
+        "per_dimension_scale": [
+          {"value": true, "weight": 8},
+          {"value": false, "weight": 92}
+        ],
+        "data_pattern": [
+          {"value": "random", "weight": 20},
+          {"value": "correlated", "weight": 24},
+          {"value": "peaked", "weight": 18},
+          {"value": "spiky", "weight": 18},
+          {"value": "smooth", "weight": 14},
+          {"value": "flat", "weight": 6}
+        ],
+        "layout": [
+          {"value": "overlay", "weight": 90},
+          {"value": "faceted", "weight": 10}
+        ],
+        "closed": [
+          {"value": true, "weight": 90},
+          {"value": false, "weight": 10}
         ]
       },
       "combination": {

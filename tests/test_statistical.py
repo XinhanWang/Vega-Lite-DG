@@ -150,7 +150,7 @@ class StatisticalTests(unittest.TestCase):
                 full, target, source = build_pair('pie', cfg)
                 self.assertEqual(sum(row['value'] for row in cfg['rows']), 100)
                 self.assertEqual(target['data']['values'], [dict(row, value=row['value'] / 100) for row in cfg['rows']])
-                self.assertEqual(target['encoding'], {'theta': {'field': 'value', 'type': 'quantitative', 'title': full['encoding']['theta']['title']},
+                self.assertEqual(target['encoding'], {'theta': {'field': 'value', 'type': 'quantitative', 'format': full['usermeta']['semantic']['options']['percent_format']},
                                                       'color': {'field': 'category', 'type': 'nominal'}})
                 self.assertNotIn('transform', target)
                 bad = copy.deepcopy(source['rows'])

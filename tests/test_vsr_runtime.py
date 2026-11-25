@@ -43,7 +43,7 @@ class VSRRuntimeTests(unittest.TestCase):
             self.assertEqual(full['usermeta']['semantic_labels'].get('y_title'),cfg['y_title'])
 
     def test_one_point_and_explicit_counts_do_not_reduce_defaults(self):
-        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.4')
+        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.4.1')
         for kind in ('line_1','line_n'):
             cfg=sample_config(kind,7,{'point_count':1})
             self.assertEqual(len(cfg['x_values']),1)

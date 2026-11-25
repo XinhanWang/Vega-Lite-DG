@@ -111,3 +111,6 @@
 !/identity.py
 
 !/tests/fixtures/identity-contract.json
+
+!/png_metadata.mjs
+!/radar_render.mjs

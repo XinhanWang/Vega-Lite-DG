@@ -98,7 +98,7 @@ def _axes(rng, kind, cfg, controls):
 def sample_horizontal_stack(seed, controls=None):
     """Sample ordinary horizontal stacks by transposing the vertical stack rules."""
     c = normalize_controls('barh_stack', controls)
-    c['stack_mode'] = 'absolute'
+    c.setdefault('stack_mode', 'absolute')
 
     cfg, rng = sample_parameters('barv_stack', seed, c)
     # The matrix and cumulative left endpoints remain exact source numbers.

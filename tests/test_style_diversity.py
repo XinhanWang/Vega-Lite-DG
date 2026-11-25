@@ -55,7 +55,7 @@ class StyleDiversityTests(unittest.TestCase):
                 if kind.startswith('line') or kind == 'barv_n':
                     self.assertEqual(ticks['x']['length'],3.5)
                     self.assertEqual(ticks['x']['direction'],'out')
-                if kind.startswith('barh'):
+                if kind in {'barh_1', 'barh_n'}:
                     self.assertEqual(ticks['y']['direction'],'out')
                     self.assertIn(ticks['y']['length'],(3,4))
                 if kind == 'scatter_n':
@@ -98,7 +98,7 @@ class StyleDiversityTests(unittest.TestCase):
         from workflow.samples import obtain_sample
         from workflow.io import dump,read,digest
         from workflow.config import CONTRACT
-        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.4')
+        self.assertEqual(GENERATOR_VERSION,'vega-lite-native/1.4.1')
         old=json.loads((ROOT/'tests/fixtures/native-1.0-barv-1.json').read_text())
         old['generator_version']='vega-lite-native/1.0'
         with tempfile.TemporaryDirectory() as directory:

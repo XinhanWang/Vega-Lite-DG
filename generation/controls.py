@@ -71,9 +71,9 @@ def normalize_controls(kind, controls):
             raise ValueError(f"scatter_n point_count is the total across series and must be in [{minimum}, 48]")
     if "x_mode" in c and (not kind.startswith("line") or c["x_mode"] not in {"numeric", "categorical", "temporal"}):
         raise ValueError("x_mode is numeric/categorical/temporal and applies only to line templates")
-    stack_modes = {"barv_stack": ("absolute", "percent"), "barh_stack": ("absolute",)}
+    stack_modes = {"barv_stack": ("absolute", "percent"), "barh_stack": ("absolute", "percent")}
     if "stack_mode" in c and c["stack_mode"] not in stack_modes.get(kind, ()):
-        raise ValueError("stack_mode accepts absolute or percent for barv_stack and only absolute for barh_stack")
+        raise ValueError("stack_mode accepts absolute or percent for stacked bars")
     if "profile" in c and (c["profile"] not in PROFILES or (c["profile"] == "dense_scatter_family" and not kind.startswith("scatter"))):
         raise ValueError(f"Invalid profile for {kind}")
     if "show_error" in c and (not kind.startswith("bar") or kind in {"barv_stack", "barh_stack"} or not isinstance(c["show_error"], bool)):

@@ -35,3 +35,13 @@ python3 pipeline.py generate --config configs/chartarena-scan.json --output runs
 子类型、样式和画幅权重是初始近似。实际样本的语言、标签开关和渲染样式可从清单核对。
 
 生成使用项目自己的数值规则和主题词表。标注快照和参考图用于提取分布统计。
+
+## 雷达结构与输出分辨率
+
+雷达训练 GT 统一采用 `mark.type = line` 和 `usermeta.chartType = radar`。`usermeta.radar` 保存独立渲染所需的极坐标结构。`radar_render.mjs` 从训练数据重建网格、系列和图例，支持折线、填充雷达、分组极坐标柱和堆叠风玫瑰。
+
+配置中的 `category_count` 支持 4–36 维，`series_count` 支持 1–8 系列。`variant`、`grid`、`tick_count`、`rotation`、`point`、`dashed`、`stroke_width`、`per_dimension_scale` 和 `data_pattern` 均可独立加权采样。各维独立量程写入 `dimensionDomains`。数值标签以 0.25 概率采样。
+
+权重来自对服务器中 100 张 ChartArena 扫描印刷雷达原图的观察，属于起始近似。密集类别、圆形网格、不同数据形态和极坐标柱图用于扩展覆盖。`layout` 支持系列叠加与分面板，`closed` 支持闭合与开放折线。复杂的解释性注释仍需继续补充。
+
+PNG 通过 `pHYs` 保存 200 DPI，像素尺寸继续由 `target_side` 决定。PNG 元数据写入保持压缩像素内容完整。

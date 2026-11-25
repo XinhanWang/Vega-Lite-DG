@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {writeTables} from './export_tables.mjs';
+import {pngAt200Dpi} from './png_metadata.mjs';
+import {renderRadarTarget} from './radar_render.mjs';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
@@ -41,8 +43,9 @@ for index in range(start, start + count):
     item = dict(sample=sample, choices=choices, theme=THEMES[theme],
                 radar=RADAR_THEMES[theme % len(RADAR_THEMES)])
     if sample.get('text_profile') == 'expanded-v1':
-        item['words'] = sample_chart_text(kind, seed, sample['language'], 12,
-                                         4 if kind == 'radar' else 2)
+        item['words'] = sample_chart_text(kind, seed, sample['language'],
+                                         max(12, choices.get('category_count', 12)),
+                                         choices.get('series_count', 4) if kind == 'radar' else 2)
     output.append(item)
 json.dump(output, sys.stdout, ensure_ascii=False)
 `, kind, String(start), String(count)], {cwd: root, input: JSON.stringify(config),
@@ -67,7 +70,7 @@ const appearances = {
 const appearance = item => appearances[item?.choices.profile] ?? appearances.publication_clean;
 const {radar, combination} = config.counts;
 for (const value of [config.seed, radar, combination, config.target_side]) {
-  assert(Number.isSafeInteger(value) && value > 0, 'Expected positive seed, counts and target size');
+  assert(Number.isSafeInteger(value) && value >= 0, 'Expected nonnegative integer counts');
 }
 assert.deepEqual(Object.keys(config.counts).sort(), ['combination', 'radar']);
 
@@ -103,22 +106,49 @@ function radarSpec(index, item) {
     : ['Group A', 'Group B', 'Group C', 'Group D'])).slice(0, item?.choices.series_count ?? (1 + index % 3));
   const multiple = names.length > 1;
   const radialMax = item?.choices.radial_max ?? 100;
-  const rows = categories.flatMap(category => names.map(series => ({
-    category, value: Number((rand(23, 96) * radialMax / 100).toPrecision(4)),
-    ...(multiple ? {series} : {}),
-  })));
+  const variant = item?.choices.variant;
+  const dataPattern = item?.choices.data_pattern ?? 'random';
+  const dimensionDomains = item?.choices.per_dimension_scale
+    ? Object.fromEntries(categories.map(category => [category, [0, radialMax * [1, .5, 2, 10][rand(0, 3)]]]))
+    : undefined;
+  const baselines = variant ? categories.map(() => rand(30, 80)) : [];
+  const fractions = categories.map((category, i) => names.map((_, s) => {
+    const angle = i / categories.length * Math.PI * 2;
+    const patterns = {
+      random: () => rand(5, 98),
+      correlated: () => Math.max(2, Math.min(98, baselines[i] + s * 4 + rand(-12, 12))),
+      peaked: () => Math.max(2, Math.min(98, 8 + 85 * Math.exp(-Math.pow((i - categories.length * .25) / (categories.length * .15), 2)) + rand(-4, 4))),
+      spiky: () => rand(0, 3) === 0 ? rand(65, 98) : rand(3, 30),
+      smooth: () => Math.max(2, Math.min(98, 50 + 35 * Math.sin(angle + s * .6) + rand(-6, 6))),
+      flat: () => 58 + s * 4 + rand(-8, 8),
+    };
+    return variant ? patterns[dataPattern]() : rand(23, 96);
+  }));
+  const rows = categories.flatMap((category, i) => names.map((series, s) => {
+    const maximum = dimensionDomains?.[category][1] ?? radialMax;
+    const divisor = variant === 'stacked_polar_bar' ? fractions[i].reduce((a, b) => a + b, 0) / (.15 + .8 * Math.max(...fractions[i]) / 100) : 100;
+    return {category, value: Number((fractions[i][s] * maximum / divisor).toPrecision(4)),
+      ...(multiple ? {series} : {})};
+  }));
+  const radar = variant ? {
+    variant, grid: item.choices.grid ?? 'polygon', rotation: item.choices.rotation ?? -90,
+    layout: item.choices.layout ?? 'overlay', closed: variant === 'line' ? item.choices.closed ?? true : true,
+    tickCount: item.choices.tick_count ?? 5, valueLabels: Boolean(item.sample.value_labels),
+    ...(dimensionDomains ? {dimensionDomains} : {}),
+  } : undefined;
   return {
     title: item?.words?.title ?? baseTitle,
     data: {values: rows},
-    mark: {type: 'line'},
+    mark: {type: 'line', ...(variant ? {point: item.choices.point ?? false,
+      strokeWidth: item.choices.stroke_width ?? 2,
+      ...(item.choices.dashed ? {strokeDash: [6, 3]} : {})} : {})},
     encoding: {
       x: {field: 'category', type: 'nominal', sort: categories},
       y: {field: 'value', type: 'quantitative', title: isChinese(item) ? '得分' : 'Score', scale: {domain: [0, radialMax]}},
-      ...(multiple ? {
-        color: {field: 'series', type: 'nominal'},
-      } : {}),
+      ...(multiple ? {color: {field: 'series', type: 'nominal'}} : {}),
     },
-    usermeta: {chartType: 'radar', table_export: {tables: [{id: 'data', path: '/data/values'}]}},
+    usermeta: {chartType: 'radar', ...(radar ? {radar} : {}),
+      table_export: {tables: [{id: 'data', path: '/data/values'}]}},
   };
 }
 
@@ -181,10 +211,12 @@ function prepareRadarPreview(compact, drawing, item) {
   const rows = drawing.data.find(source => source.name === 'observations').values;
   const keys = rows => rows.map(({category, value, series}) => JSON.stringify([category, value, series])).sort();
   assert.deepEqual(keys(rows), keys(compact.data.values));
-  const [minimum, maximum] = compact.encoding.y.scale.domain;
-  for (const row of rows) {
-    const expected = 180 * (row.value - minimum) / (maximum - minimum);
-    assert(Math.abs(Math.hypot(row.__px - 250, row.__py - 235) - expected) < 1e-8);
+  if (!compact.usermeta.radar) {
+    const [minimum, maximum] = compact.encoding.y.scale.domain;
+    for (const row of rows) {
+      const expected = 180 * (row.value - minimum) / (maximum - minimum);
+      assert(Math.abs(Math.hypot(row.__px - 250, row.__py - 235) - expected) < 1e-8);
+    }
   }
   if (!compact.encoding.color) {
     drawing.marks = drawing.marks.filter(mark => mark.from?.data !== 'legend');
@@ -210,13 +242,18 @@ function fullRadar(drawing, item) {
           const grey = ['#d1d5db','#cccccc','#bbbbbb','#dddddd','#999999'].includes(color);
           if (black || grey) value.value = black ? style.text : style.grid;
         }
+        if (key === 'scales') {
+          for (const scale of value) {
+            if (scale.type === 'ordinal') scale.range = [...style.colors, '#39a2b6', '#a5a12e', '#c77b9d', '#7d6d55'];
+          }
+        }
         if (key === 'font' && isChinese(item) && typeof value.value === 'string') value.value = fontName;
         recolor(value);
       }
     };
     recolor(drawing.marks);
     for (const scale of drawing.scales ?? []) {
-      if (scale.type === 'ordinal' && Array.isArray(scale.range)) scale.range = style.colors;
+      if (scale.type === 'ordinal' && Array.isArray(scale.range)) scale.range = [...style.colors, "#39a2b6", "#a5a12e", "#c77b9d", "#7d6d55"];
     }
     const margin = Math.max(30, Math.round((drawing.height * (item.sample.aspect_ratio ?? 1) - drawing.width) / 2));
     drawing.padding = {top:30,bottom:30,left:margin,right:margin};
@@ -264,7 +301,7 @@ async function renderImage(compiled, compact, item, id) {
   const mode = Number(svgCanvas[1]) >= Number(svgCanvas[2]) ? 'width' : 'height';
   const font = isChinese(item) ? {fontFiles:[fontFile], defaultFontFamily:fontName} : undefined;
   if (isChinese(item)) assert(svg.includes(fontName), 'Missing Chinese face in SVG');
-  const png = new Resvg(svg, {fitTo: {mode, value: config.target_side}, ...(font ? {font} : {})}).render().asPng();
+  const png = pngAt200Dpi(new Resvg(svg, {fitTo: {mode, value: config.target_side}, ...(font ? {font} : {})}).render().asPng());
   assert(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
   return {svg, png};
 }
@@ -365,10 +402,12 @@ async function renderCombination(index, item) {
 for (let start = 0; start < radar; start += batchSize) {
   const items = planBatch('radar', start, Math.min(batchSize, radar - start));
   const targets = items.map((item, offset) => radarSpec(start + offset, item));
-  const views = projectRadar(targets);
+  const legacyIndices = targets.map((spec, index) => spec.usermeta.radar ? -1 : index).filter(index => index >= 0);
+  const legacyViews = legacyIndices.length ? projectRadar(legacyIndices.map(index => targets[index])) : [];
+  const views = targets.map((spec, index) => legacyViews[legacyIndices.indexOf(index)]);
   for (const [offset, compact] of targets.entries()) {
     const item = items[offset];
-    const preview = prepareRadarPreview(compact, views[offset], item);
+    const preview = prepareRadarPreview(compact, renderRadarTarget(compact, views[offset]), item);
     const drawing = fullRadar(plain(preview), item);
     await render('radar', start + offset, compact, drawing, drawing, preview, item);
   }

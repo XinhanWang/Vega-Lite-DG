@@ -17,8 +17,11 @@ class StackTests(unittest.TestCase):
                 for i in range(3):
                     self.assertAlmostEqual(c['bottoms'][i][j],total)
                     total+=c['matrix'][i][j]
-            with self.assertRaises(ValueError):
-                sample_config('barh_stack',seed,{'stack_mode':'percent'})
+            percent = sample_config('barh_stack', seed, {'stack_mode': 'percent'})
+            self.assertEqual(percent['stack_mode'], 'percent')
+            full, compact, source = build_pair('barh_stack', percent, precision_v1=True)
+            self.assertCountEqual([row['value'] for row in source['rows']],
+                                  [value for values in percent['matrix'] for value in values])
 
     def test_both_stack_directions_and_reversed_axes_preserve_source_segments(self):
         for kind in ('barv_stack','barh_stack'):
