@@ -1,8 +1,9 @@
+from decimal import Decimal
 import copy
 import unittest
 from adapter import build_pair
 from compact import normalize
-from generation.core import sample_config, sample_horizontal_stack
+from generation.core import sample_at_precision, sample_config, sample_horizontal_stack
 from test_adapter import fixture
 from workflow.validation import audit_visible_order
 
@@ -17,11 +18,18 @@ class StackTests(unittest.TestCase):
                 for i in range(3):
                     self.assertAlmostEqual(c['bottoms'][i][j],total)
                     total+=c['matrix'][i][j]
-            percent = sample_config('barh_stack', seed, {'stack_mode': 'percent'})
+            percent, _, attempts = sample_at_precision('barh_stack', seed, {'stack_mode': 'percent'}, None)
+            if seed == 101:
+                self.assertGreater(attempts, 1)
             self.assertEqual(percent['stack_mode'], 'percent')
             full, compact, source = build_pair('barh_stack', percent, precision_v1=True)
-            self.assertCountEqual([row['value'] for row in source['rows']],
-                                  [value for values in percent['matrix'] for value in values])
+            for index in range(len(percent['labels'])):
+                rows = [row for row in source['rows'] if row['category_index'] == index]
+                self.assertEqual(sum(Decimal(str(row['value'])) for row in rows), 100)
+                self.assertEqual(rows[0]['value_lower'], 0)
+                self.assertEqual(rows[-1]['value_upper'], 100)
+                self.assertEqual([row['value_upper'] for row in rows[:-1]],
+                                 [row['value_lower'] for row in rows[1:]])
 
     def test_both_stack_directions_and_reversed_axes_preserve_source_segments(self):
         for kind in ('barv_stack','barh_stack'):

@@ -11,6 +11,7 @@ PROFILES = ("chromatic", "publication_clean", "colorful_analytic", "presentation
 FAMILIES = {kind: (STACK_FAMILIES if kind in {"barv_stack", "barh_stack"} else BAR_SINGLE_FAMILIES if kind.startswith("bar") and kind.endswith("_1") else BAR_MULTI_FAMILIES if kind.startswith("bar") else LINE_FAMILIES if kind.startswith("line") else SCATTER_FAMILIES) for kind in KINDS}
 FAMILIES.update(pie=("balanced", "dominant", "long_tail", "bimodal"),
                 boxplot=("normal", "uniform", "skewed", "bimodal", "heavy_tail"))
+PIE_LABEL_MODES = {"legend_value", "value", "category_value", "category", "none"}
 HATCHES = (None, "/", "\\", "|", "-", "+", "x", "o", "O", ".", "*")
 
 
@@ -25,7 +26,7 @@ def normalize_controls(kind, controls):
             if new in c and c[old] != c[new]:
                 raise ValueError(f"Conflicting controls: {old} and {new}")
             c[new] = c.pop(old)
-    accepted = {"point_count", "category_count", "series_count", "family", "x_mode", "stack_mode", "profile", "style", "show_error", "hatch", "max_attempts", "show_legend", "x_inverted", "y_inverted", "x_scale", "y_scale", "reference_lines"}
+    accepted = {"point_count", "category_count", "series_count", "family", "x_mode", "y_mode", "stack_mode", "profile", "style", "show_error", "hatch", "max_attempts", "show_legend", "x_inverted", "y_inverted", "x_scale", "y_scale", "reference_lines"}
     special = {"donut", "value_mode", "value_title", "label_mode", "legend_position", "zero_count"} if kind == "pie" else {"orientation", "outlier_mode", "legend_position"} if kind == "boxplot" else set()
     unknown = set(c) - accepted - special
     if unknown:
@@ -45,7 +46,7 @@ def normalize_controls(kind, controls):
             raise ValueError(f"Unsupported controls for {kind}: {sorted(unsupported)}")
         if not 2 <= c.get("category_count", 2) <= 8:
             raise ValueError("category_count must be in [2, 8]")
-        choices = {"value_mode": {"percent", "absolute"}, "label_mode": {"legend_value", "value", "category_value"},
+        choices = {"value_mode": {"percent", "absolute"}, "label_mode": PIE_LABEL_MODES,
                    "legend_position": {"left", "right", "top", "bottom"},
                    "orientation": {"horizontal", "vertical"}, "outlier_mode": {"none", "natural", "injected"}}
         for key, values in choices.items():
@@ -71,6 +72,13 @@ def normalize_controls(kind, controls):
             raise ValueError(f"scatter_n point_count is the total across series and must be in [{minimum}, 48]")
     if "x_mode" in c and (not kind.startswith("line") or c["x_mode"] not in {"numeric", "categorical", "temporal"}):
         raise ValueError("x_mode is numeric/categorical/temporal and applies only to line templates")
+    if "y_mode" in c:
+        if not kind.startswith("line") or c["y_mode"] not in {"numeric", "categorical"}:
+            raise ValueError("y_mode is numeric/categorical and applies only to line templates")
+        if c["y_mode"] == "categorical":
+            if c.get("x_mode", "numeric") != "numeric" or c.get("y_scale", "linear") != "linear" or c.get("y_inverted", False):
+                raise ValueError("Categorical line Y requires numeric X and a standard category axis")
+            c.setdefault("x_mode", "numeric")
     stack_modes = {"barv_stack": ("absolute", "percent"), "barh_stack": ("absolute", "percent")}
     if "stack_mode" in c and c["stack_mode"] not in stack_modes.get(kind, ()):
         raise ValueError("stack_mode accepts absolute or percent for stacked bars")

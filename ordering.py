@@ -37,6 +37,11 @@ def visual_rows(kind: str, rows: list[dict], *, x_reverse: bool = False,
     return visible
 
 
+def line_y_labels(matrix: list[list]) -> list:
+    """Return nominal Y labels in the same first-seen order as line rows."""
+    return list(dict.fromkeys(value for point in zip(*matrix) for value in point))
+
+
 def first_seen(rows: list[dict], field: str) -> list:
     return list(dict.fromkeys(row[field] for row in rows))
 

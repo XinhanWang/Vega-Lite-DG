@@ -12,14 +12,7 @@
     "scatter_n": 1,
     "barh_stack": 1
   },
-  "controls": {
-    "barv_stack": {
-      "stack_mode": "absolute"
-    },
-    "barh_stack": {
-      "stack_mode": "absolute"
-    }
-  },
   "workers": 2,
-  "target_side": 1036
+  "target_side": 1036,
+  "notes": "General diversity sampler. Counts and seed select the workload."
 }

@@ -26,6 +26,8 @@ def _axis_values(kind, cfg, axis):
     if kind.startswith("line"):
         if axis == "x":
             return np.asarray(cfg["x_values"]), cfg["x_mode"] != "numeric"
+        if cfg.get("y_mode") == "categorical":
+            return np.arange(4), True
         return np.asarray(cfg["matrix"]), False
     return np.asarray(cfg[axis]), False
 
@@ -67,7 +69,7 @@ def _axes(rng, kind, cfg, controls):
         if kind.startswith('bar'):
             if np.any(np.asarray(cfg.get('values', cfg.get('matrix'))) < 0):
                 refs.append({'axis': 'x' if kind.startswith('barh') else 'y', 'value': 0})
-        elif kind.startswith('line') and p.random() < .22:
+        elif kind.startswith('line') and cfg.get("y_mode") != "categorical" and p.random() < .22:
             refs.append({'axis': 'y', 'value': 0})
     if any(not math.isfinite(float(ref["value"])) for ref in refs):
         raise ValueError("Reference-line values must be finite")
@@ -112,10 +114,17 @@ def sample_horizontal_stack(seed, controls=None):
 
 def sample_config(kind, seed, controls=None, sampling=None):
     from .localization import apply
-    return apply(_sample_config(kind, seed, controls), kind, seed, sampling)
+    cfg = apply(_sample_config(kind, seed, controls, sampling), kind, seed, sampling)
+    if cfg.get("y_mode") == "categorical":
+        chinese = (sampling or {}).get("language") == "zh"
+        names = ("待机", "预热", "运行", "维护") if chinese else ("Standby", "Warm-up", "Running", "Maintenance")
+        cfg["matrix"] = [[names[state] for state in series] for series in cfg["matrix"]]
+        cfg["title"] = "观测中的运行状态" if chinese else "Operating state across observations"
+        cfg["y_title"] = "运行状态" if chinese else "Operating state"
+    return cfg
 
 
-def _sample_config(kind, seed, controls=None):
+def _sample_config(kind, seed, controls=None, sampling=None):
     """Run the complete VSR parameter rules, then apply native contract adapters.
 
     Raw default parameters retain the upstream stochastic control flow. Extra
@@ -126,7 +135,7 @@ def _sample_config(kind, seed, controls=None):
     c = normalize_controls(kind, controls)
     if kind in {"pie", "boxplot"}:
         from .summaries import sample
-        return clean(sample(RandomSource(seed), kind, c))
+        return clean(sample(RandomSource(seed), kind, c, sampling=sampling))
     cfg, p = sample_horizontal_stack(seed, c) if kind == "barh_stack" else sample_parameters(kind, seed, c)
     cfg = clean(cfg)
     cfg['generator_version'] = GENERATOR_VERSION
@@ -189,6 +198,11 @@ def _sample_config(kind, seed, controls=None):
         margin = (high-low)*.05 or .5
         cfg.setdefault(category_axis+'lim', [low-margin, high+margin])
         cfg.setdefault(axis+'lim', cfg.get(axis+'lims'))
+    if c.get("y_mode") == "categorical":
+        values = np.asarray(cfg["matrix"])
+        thresholds = np.quantile(values, (.25, .5, .75))
+        cfg.update(y_mode="categorical", matrix=np.searchsorted(thresholds, values, side="left").tolist(),
+                   ylim=[-.5, 3.5])
     if kind.startswith('line') and count == 1:
         cfg['markers'] = [m or 'o' for m in cfg['markers']]
     # Continue the sample-local random stream for renderer-time choices.
@@ -196,14 +210,36 @@ def _sample_config(kind, seed, controls=None):
     return clean(cfg)
 
 
-def sampling_diagnostics(kind, seed, cfg, controls=None):
+def sample_at_precision(kind, seed, controls, sampling):
+    """Draw deterministic candidates before writing any sampling evidence."""
+    from precision import PRECISION_ATTEMPTS, PrecisionError
+    from adapter import scientific_rows
+    from statistical import final_rows
+
+    for attempt in range(PRECISION_ATTEMPTS):
+        candidate_seed = seed if not attempt else int.from_bytes(
+            hashlib.sha256(f"{seed}:precision:{attempt}".encode()).digest()[:8], "big")
+        cfg = sample_config(kind, candidate_seed, controls, sampling)
+        try:
+            if kind in {"pie", "boxplot"}:
+                final_rows(kind, cfg, precision_v1=True)
+            else:
+                scientific_rows(kind, cfg, precision=True)
+        except PrecisionError as error:
+            if attempt + 1 == PRECISION_ATTEMPTS:
+                raise PrecisionError(f"{kind}: no valid observations in {PRECISION_ATTEMPTS} draws: {error}") from error
+        else:
+            return cfg, candidate_seed, attempt + 1
+
+
+def sampling_diagnostics(kind, seed, cfg, controls=None, *, sample_seed=None, attempts=1):
     """Describe sampled parameters and bind provenance to the exact configuration."""
     c = normalize_controls(kind, controls)
     config_json = json.dumps(cfg, ensure_ascii=False, sort_keys=True,
                              separators=(",", ":"), allow_nan=False)
     config_sha256 = hashlib.sha256(config_json.encode("utf-8")).hexdigest()
     return {"generator_version": GENERATOR_VERSION, "kind": kind,
-            "requested_seed": seed, "sample_seed": seed, "sampling_attempts": 1,
+            "requested_seed": seed, "sample_seed": seed if sample_seed is None else sample_seed, "sampling_attempts": attempts,
             "controls": clean(c), "family": cfg["family"], "profile": cfg["style"]["profile"],
             "axes": copy.deepcopy(cfg["_render_axes"]), "renderer": "vega-lite",
             "source": "native statistical samplers with independent per-sample RNGs" if kind in {"pie", "boxplot"} else "static VSR parameter rules with independent per-sample RNGs",
@@ -216,18 +252,16 @@ def generate_chart(kind, seed, outdir, controls=None, sampling=None):
 
     The return dictionary retains config/sample_seed/diagnostics used by the
     former entry point. Rendering always proceeds through adapter + render.mjs.
-    max_attempts is accepted for old run configs but no rejection loop is needed:
-    forced counts, family, errors and style choices are applied directly.
     """
     c = normalize_controls(kind, controls)
     outdir = Path(outdir)
     for name in ("config.json", "sampling.json"):
         if (outdir / name).exists():
             raise FileExistsError(f"Refusing to overwrite existing sample: {outdir / name}")
-    cfg = sample_config(kind, seed, c, sampling)
-    diagnostics = sampling_diagnostics(kind, seed, cfg, c)
+    cfg, sample_seed, attempts = sample_at_precision(kind, seed, c, sampling)
+    diagnostics = sampling_diagnostics(kind, seed, cfg, c, sample_seed=sample_seed, attempts=attempts)
     outdir.mkdir(parents=True, exist_ok=True)
     save(outdir / "config.json", cfg)
     save(outdir / "sampling.json", diagnostics)
-    return {"config": cfg, "sample_seed": seed, "diagnostics": diagnostics}
+    return {"config": cfg, "sample_seed": sample_seed, "diagnostics": diagnostics}
 

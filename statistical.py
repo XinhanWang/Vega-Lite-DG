@@ -4,8 +4,9 @@ from decimal import Decimal
 import json
 import math
 
-from generation.summaries import canonical_numbers
-from precision import PERCENT_FORMAT, PERCENT_SPECIFIER, box_projection, ordered_projection
+from generation.summaries import canonical_numbers, pie_label_mode
+from precision import (PERCENT_FORMAT, PERCENT_SPECIFIER, PRECISION_VERSION,
+                       box_projection, ordered_projection, percentage_fraction, percentage_parts)
 from spec_format import format_spec
 from table_metadata import attach_tables
 
@@ -48,16 +49,13 @@ def _spec(kind, rows, options, axes):
         inner = radius * options["hole_ratio"] if options["donut"] else 0
         percentage = options["value_mode"] == "percent"
         percent_format = options.get("percent_format", PERCENT_FORMAT)
-        number = f"format(datum.value, '{percent_format}')" if percentage else "format(datum.value, '~g')"
+        numbers = {row["category"]: pie_label(row["value"], percentage, percent_format) for row in rows}
         label_mode = options["label_mode"]
         zero_categories = [row["category"] for row in rows if row["value"] == 0]
+        category_values = {category: category + ": " + number for category, number in numbers.items()}
         if color["legend"] is not None and (label_mode == "legend_value" or zero_categories):
-            labels = {}
-            for row in rows:
-                label = row["category"]
-                if label_mode == "legend_value" or row["value"] == 0:
-                    label += ": " + pie_label(row["value"], percentage, percent_format)
-                labels[row["category"]] = label
+            labels = {category: category_values[category] if label_mode == "legend_value" or category in zero_categories
+                      else category for category in categories}
             color["legend"]["labelExpr"] = "(" + json.dumps(labels) + ")[datum.label]"
         for index, row in enumerate(result["data"]["values"]):
             row["sector_order"] = index
@@ -71,8 +69,12 @@ def _spec(kind, rows, options, axes):
         result.update(encoding={"theta": theta, "color": color, "order": order},
                       layer=[{"name": "sectors", "mark": {"type": "arc", "innerRadius": inner, "outerRadius": radius}}])
         if label_mode not in {"legend_value", "none"}:
-            outside = label_mode == "category_value"
-            expression = "datum.category + ': ' + " + number if outside else number
+            outside = label_mode in {"category", "category_value"}
+            if label_mode == "category":
+                expression = "datum.category"
+            else:
+                labels = category_values if outside else numbers
+                expression = "(" + json.dumps(labels) + ")[datum.category]"
             label_mark = {"type": "text", "radius": radius + 30 if outside else max(radius * .78, (radius + inner) / 2),
                           "fontSize": 10 if len(rows) >= 7 else 11, "color": "#111827"}
             if outside:
@@ -98,7 +100,7 @@ def _spec(kind, rows, options, axes):
                     "mark": {"type": "text", "align": "center", "baseline": "top", "fontSize": 11,
                              "x": size / 2, "y": {"expr": "(" + json.dumps(positions) + ")[datum.category]"}},
                     "encoding": {"theta": {"value": 0}, "color": {"value": "#111827"},
-                                 "text": {"value": {"expr": "datum.category + ': ' + " + number}}},
+                                 "text": {"value": {"expr": "(" + json.dumps(category_values) + ")[datum.category]"}}},
                 })
     else:
         horizontal = options["orientation"] == "horizontal"
@@ -284,37 +286,47 @@ def validate_compact(spec):
 
 
 def pie_label(value, percentage, percent_format=None):
-    if percentage and percent_format:
-        text = format(Decimal(str(value)).scaleb(2), "f")
-        return (text.rstrip("0").rstrip(".") if "." in text else text) + "%"
-    return format(value, ".0%" if percentage else "g")
+    if percentage and not percent_format:
+        return format(value, ".0%")
+    decimal = Decimal(str(value))
+    text = format(decimal.scaleb(2) if percentage else decimal, "f")
+    return (text.rstrip("0").rstrip(".") if "." in text else text) + ("%" if percentage else "")
 
 
 def final_rows(kind, cfg, precision_v1=False):
-    rows = canonical_numbers(cfg["rows"])
+    rows = cfg["rows"] if precision_v1 else canonical_numbers(cfg["rows"])
     if precision_v1 and kind == "boxplot":
         return [box_projection(row) for row in rows]
-    if precision_v1 and kind == "pie" and cfg["value_mode"] == "absolute":
-        return [dict(row, value=value) for row, value in zip(rows, ordered_projection([row["value"] for row in rows]))]
+    if precision_v1 and kind == "pie":
+        values = [row["value"] for row in rows]
+        percent = cfg["value_mode"] == "percent"
+        error = pie_value_error(values, 100 if percent else None)
+        if error is not None:
+            raise ValueError(error)
+        projected = percentage_parts(values) if percent else ordered_projection(values)
+        return [dict(row, value=value) for row, value in zip(rows, projected)]
     return rows
 
 
-def build_pair(kind, cfg, *, precision_v1=False):
+def build_pair(kind, cfg, *, precision_v1=False, observation_rows=None):
     from presentation import apply_presentation
     from text_layout import apply_text_layout, fit_category_axis
     cfg = copy.deepcopy(cfg)
     options = {key: cfg[key] for key in OPTION_KEYS if key in cfg}
     if cfg.get("sampling", {}).get("language") == "zh":
         options["language"] = "zh"
-    rows = final_rows(kind, cfg, precision_v1)
+    rows = copy.deepcopy(observation_rows) if observation_rows is not None else final_rows(kind, cfg, precision_v1)
     if kind == "pie":
+        options["label_mode"] = pie_label_mode(options["value_mode"], options["show_legend"], options["label_mode"])
         percentage = options["value_mode"] == "percent"
-        error = pie_value_error([row["value"] for row in rows], 100 if percentage else None)
+        total = (100 if observation_rows is None else 1) if percentage else None
+        error = pie_value_error([row["value"] for row in rows], total)
         if error is not None:
             raise ValueError(error)
         if percentage:
-            for row in rows:
-                row["value"] = float(Decimal(str(row["value"])) / 100)
+            if observation_rows is None:
+                for row in rows:
+                    row["value"] = percentage_fraction(row["value"])
             digits = max((len(Decimal(str(row["value"])).normalize().as_tuple().digits) for row in rows), default=4)
             options["percent_format"] = PERCENT_FORMAT if digits <= 4 else f".{digits}~p"
     full = _spec(kind, rows, options, cfg.get("_render_axes") or {})
@@ -323,12 +335,15 @@ def build_pair(kind, cfg, *, precision_v1=False):
     semantic = {"kind": kind, "options": options}
     full["usermeta"] = {"semantic": semantic}
     if precision_v1:
-        full["usermeta"]["precision_version"] = 1
+        full["usermeta"]["precision_version"] = PRECISION_VERSION
     full["title"] = {"text": cfg["title"], "fontSize": cfg["style"].get("title_size", 18),
                      "color": cfg["style"].get("text_color", "#111827")}
     full["config"] = {"view": {"stroke": None}}
     full["background"] = cfg["style"].get("facecolor", "white")
     full = apply_text_layout(apply_presentation(full, cfg))
+    if kind == "pie" and options["label_mode"] in {"category", "category_value"}:
+        # Long labels can cross the edge of the plotting rectangle.
+        full["config"]["view"]["stroke"] = None
     if kind == "boxplot" and cfg.get("sampling", {}).get("text_profile") == "expanded-v1":
         channel = "y" if options["orientation"] == "horizontal" else "x"
         fit_category_axis(full, channel, [row["category"] for row in rows])
@@ -354,7 +369,7 @@ def build_pair(kind, cfg, *, precision_v1=False):
         if layer["name"] in {"sector_labels", "zero_labels"}:
             layer["mark"].update(font=font["family"], fontWeight=font["weight"], fontStyle=font["style"])
             layer["encoding"]["color"] = {"value": text_color}
-            if layer["name"] == "sector_labels" and cfg["label_mode"] == "value":
+            if layer["name"] == "sector_labels" and options["label_mode"] == "value":
                 from PIL import ImageColor
                 contrast = {}
                 for row, color in zip(rows, colors):

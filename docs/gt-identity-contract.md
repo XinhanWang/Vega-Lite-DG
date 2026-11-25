@@ -5,7 +5,7 @@
 ## 1. 数据对象
 
 - 柱图：`category → category_id（按需）→ value → lower → upper → path_order → stack_order → start → end → series（如需）→ series_id（按需）`。只保留适用于当前图的原有字段，`path_order` 只适用于折线，不出现在柱图。
-- 折线/散点：`x → x_id（仅离散 X 重名时）→ y → 原有区间/顺序字段 → series → series_id`。
+- 折线/散点：`x → x_id（仅离散 X 重名时）→ y → y_id（仅离散 Y 折线重名时）→ 原有区间/顺序字段 → series → series_id`。
 - `series` 在所有基础/数值/顺序字段后；`series_id` 紧跟它且始终最后。可选字段省略，不添加空值占位，不改变剩余字段相对次序。单系列无图例省略 `series` 与系列编码。
 - 本工具的九类支持范围不扩大。箱线、扇区、雷达、复合/子图等文档中现有类型保留其自己的字段与科学规则；本次不能把它们有损转成柱/线/点。
 
@@ -19,6 +19,7 @@
 |---|---|---|
 | 柱图 `category` | `category_id` | 字符串 `C1`, `C2`, ... |
 | 离散 X 折线 `x` | `x_id` | 字符串 `X1`, `X2`, ... |
+| 离散 Y 折线 `y` | `y_id` | 字符串 `Y1`, `Y2`, ... |
 | 图例 `series` | `series_id` | 字符串 `S1`, `S2`, ... |
 
 `x_id` 与 `category_id` 具有相同的“离散位置身份”含义，但保留不同的数据角色：已有点/线仍写 `x`，不能为了统一命名改成 `category`；两列不并存。真正连续数值 X、真实时间坐标不因数值重复而分配离散位置 ID。
@@ -46,11 +47,11 @@
 
 ## 4. GT、Renderer 与兼容
 
-GT 类别通道在需要时绑定 `category_id` / `x_id`；系列的 color、分组 offset 等通道同时绑定 `series_id`。无 ID 时沿用 `category` / `x` / `series`。
+GT 类别通道在需要时绑定 `category_id` / `x_id` / `y_id`；系列的 color、分组 offset 等通道同时绑定 `series_id`。无 ID 时沿用 `category` / `x` / `y` / `series`。
 
 Renderer 在深拷贝的 GT 上按 ID 建立显示文本映射，给轴注入 `axis.labelExpr`、给图例注入 `legend.labelExpr`；字符串使用 JSON 转义。GT 不保存这些表达式、映射字典、内部 key、像素证据或显示配置。`compact.preview.vl.json` 是显示副本，不是训练标签。
 
-导入旧 `category_instance`、`x_instance`、`series_instance` 时，先按旧身份列恢复对象，再按新规则重投影；新导出不保留旧列。兼容旧工程 version 1/2；新工程继续使用 version 2，增加可选对象表与稳定引用。历史文件没有任何身份信息且同名实际对象无法区分时，不做有损推断。
+导入旧 `category_instance`、`x_instance`、`y_instance`、`series_instance` 时，先按旧身份列恢复对象，再按新规则重投影；新导出不保留旧列。兼容旧工程 version 1/2；新工程继续使用 version 2，增加可选对象表与稳定引用。历史文件没有任何身份信息且同名实际对象无法区分时，不做有损推断。
 
 ## 5. 验证
 

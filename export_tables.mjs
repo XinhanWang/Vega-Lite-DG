@@ -6,13 +6,10 @@ import {pathToFileURL} from 'node:url';
 const require = createRequire(import.meta.url);
 const {exportTables} = require('./vendor/vega-lite-table-export/vega-lite-table-export.js');
 
+export {exportTables};
+
 export function writeTables(directory, compact) {
-  const meta = compact.usermeta;
-  // A radar target has one inline table. Index it only in the export copy.
-  const indexed = meta?.chartType === 'radar' && !Object.hasOwn(meta, 'table_export')
-    ? {...compact, usermeta: {...meta, table_export: {tables: [{id: 'data', path: '/data/values'}]}}}
-    : compact;
-  const tables = exportTables(indexed);
+  const tables = exportTables(compact);
   for (const {id, markdown, csv} of tables) {
     if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Invalid artifact filename for table ' + id);
     for (const [extension, contents] of [['md', markdown], ['csv', csv]]) {

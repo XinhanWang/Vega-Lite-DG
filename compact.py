@@ -84,12 +84,18 @@ def _context(full: dict, version: int = 4) -> dict:
                     {key: f"Series {i + 1}" for i, key in enumerate(series_keys)})
     _, repeated_series = _mapping(series_keys, [series_names[key] for key in series_keys])
     include_series = version == 3 or visible_legend or len(series_keys) > 1
-    category_field = "category" if kind.startswith("bar") else "x" if kind.startswith("line") and semantic.get("x_mode") != "numeric" else None
+    category_field = None
+    if kind.startswith("bar"):
+        category_field = "category"
+    elif kind.startswith("line") and semantic.get("x_mode", "numeric") != "numeric":
+        category_field = "x"
+    line_y_discrete = kind.startswith("line") and semantic.get("y_mode", "numeric") != "numeric"
     if kind.startswith("bar"):
         value_axis = "x" if kind.startswith("barh") else "y"
         numeric_fields = {value_axis: ("value", "lower", "upper", "start", "end")}
     else:
-        numeric_fields = {"y": ("y",)} if category_field else {"x": ("x",), "y": ("y",)}
+        numeric_fields = {axis: (axis,) for axis in ("x", "y")
+                          if axis != category_field and (axis != "y" or not line_y_discrete)}
     percent_axes = {axis for axis in numeric_fields if _legacy_percent_axis(enc.get(axis, {}))}
     percent_fields = {field for axis in percent_axes for field in numeric_fields[axis]}
     category_keys = first_seen(rows, "category_id") if category_field else []
@@ -102,7 +108,7 @@ def _context(full: dict, version: int = 4) -> dict:
             "series_keys": series_keys, "series_names": series_names,
             "series_index": {key: i for i, key in enumerate(series_keys)},
             "include_series": include_series, "repeated_series": repeated_series,
-            "visible_legend": visible_legend,
+            "visible_legend": visible_legend, "line_y_discrete": line_y_discrete,
             "path_order": kind.startswith("line") and needs_path_order(rows, x_reverse=bool((enc.get("x", {}).get("scale") or {}).get("reverse"))),
             "stack_endpoints": kind in {"barv_stack", "barh_stack"} and needs_stack_endpoints(rows),
             "category_field": category_field, "category_keys": category_keys, "category_visual": category_visual,
@@ -185,6 +191,9 @@ def _series_encoding(context: dict) -> dict:
 
 
 def _needs_input_order(context: dict) -> bool:
+    # Vega-Lite defaults to sorting a horizontal line by nominal Y.
+    if context["line_y_discrete"]:
+        return True
     last = {}
     for row in context["rows"]:
         key = row["series_id"]
@@ -193,6 +202,24 @@ def _needs_input_order(context: dict) -> bool:
             return True
         last[key] = x
     return False
+
+
+def migrate_line_axes(spec: dict) -> dict:
+    """Canonicalize legacy standalone line axes on a freshly copied target."""
+    mark = spec.get("mark")
+    if mark not in ("line", {"type": "line"}, {"type": "line", "order": False}):
+        return spec
+    enc = spec.get("encoding")
+    if not isinstance(enc, dict):
+        return spec
+    for axis in ("x", "y"):
+        definition = enc.get(axis)
+        if isinstance(definition, dict) and definition.get("type") == "ordinal":
+            definition["type"] = "nominal"
+    y = enc.get("y")
+    if isinstance(y, dict) and y.get("type") == "nominal" and "order" not in enc:
+        spec["mark"] = {"type": "line", "order": False}
+    return spec
 
 
 def normalize(full: dict) -> dict:
@@ -205,7 +232,7 @@ def normalize(full: dict) -> dict:
     if _semantic(full) is None:
         from statistical import target_kind
         if not target_kind(full):
-            full = migrate_spec(full)
+            full = migrate_line_axes(migrate_spec(full))
         validate_target(full)
         return format_spec(full)
     context = _context(full)
@@ -244,9 +271,10 @@ def normalize(full: dict) -> dict:
         else:
             result["mark"] = "bar"
     else:
-        xtype = "ordinal" if context["category_field"] else "quantitative"
+        xtype = "nominal" if context["category_field"] else "quantitative"
+        ytype = "nominal" if context["line_y_discrete"] else "quantitative"
         encoding = {"x": _axis_encoding(context, "x", "x", xtype),
-                    "y": _axis_encoding(context, "y", "y", "quantitative")}
+                    "y": _axis_encoding(context, "y", "y", ytype)}
         if context["include_series"]:
             encoding["color"] = _series_encoding(context)
         result["mark"] = ({"type": "line", "order": False} if _needs_input_order(context) else "line") if kind.startswith("line") else "point"
@@ -322,14 +350,14 @@ def validate_canonical(spec: dict) -> None:
     bar = {"category", "value"} <= fields
     core = {"category", "value"} if bar else {"x", "y"}
     check(core <= fields, "missing core observations")
-    check(fields <= core | {"series", "category_id", "x_id", "series_id", "lower", "upper", "path_order", "stack_order", "start", "end"}, "unknown data fields")
+    check(fields <= core | {"series", "category_id", "x_id", "y_id", "series_id", "lower", "upper", "path_order", "stack_order", "start", "end"}, "unknown data fields")
     check(("lower" in fields) == ("upper" in fields), "incomplete error interval")
     check(("start" in fields) == ("end" in fields), "incomplete stack endpoints")
     for row in rows:
         for f, v in row.items():
             check(isinstance(v, (str, int, float)) and not isinstance(v, bool), "non-scalar observation")
             check(not isinstance(v, (int, float)) or math.isfinite(v), "nonfinite observation")
-            if f in {"value", "y", "lower", "upper", "start", "end", "path_order", "stack_order"}:
+            if f in {"value", "lower", "upper", "start", "end", "path_order", "stack_order"}:
                 check(isinstance(v, (int, float)), "numeric observation required")
     for f, (identity, prefix) in IDENTITIES.items():
         if identity not in fields:
@@ -366,6 +394,8 @@ def validate_canonical(spec: dict) -> None:
             check(set(d) == {"field"}, "secondary channel grammar")
         else:
             check(d.get("type") in {"nominal", "ordinal", "quantitative"}, "unsupported data type")
+            if line_mark and channel in {"x", "y"}:
+                check(d["type"] in {"nominal", "quantitative"}, "discrete line axes must be nominal")
         if d.get("type") in {"nominal", "ordinal"}:
             explicit_line = line_mark and channel == "x" and "path_order" in fields and isinstance(d.get("sort"), list)
             check("sort" in d and (d["sort"] is None or explicit_line), "discrete order must follow rows except retreating lines")
@@ -418,13 +448,22 @@ def validate_canonical(spec: dict) -> None:
         value_axis = "x" if category_axis == "y" else "y"
         check(enc[category_axis]["field"] == ("category_id" if "category_id" in fields else "category") and enc[category_axis]["type"] == "nominal", "bar category encoding")
         check(enc[value_axis]["field"] == ("end" if "start" in fields else "value") and enc[value_axis]["type"] == "quantitative", "bar value encoding")
-        check(not {"path_order", "x_id"} & fields, "line fields in bar")
+        check(not {"path_order", "x_id", "y_id"} & fields, "line fields in bar")
         check(not {"xOffset", "yOffset"} & set(enc) or category_axis + "Offset" in enc, "offset axis")
     else:
-        check(enc["x"]["field"] == ("x_id" if "x_id" in fields else "x") and enc["y"]["field"] == "y" and enc["y"]["type"] == "quantitative", "xy encoding")
+        check(all(enc[axis]["field"] == (axis + "_id" if axis + "_id" in fields else axis)
+                  for axis in ("x", "y")), "xy encoding")
+        if mark == "line" and enc["y"]["type"] == "nominal":
+            check(enc["x"]["type"] == "quantitative", "discrete line Y requires quantitative X")
+            check("path_order" in fields or spec.get("mark") == {"type": "line", "order": False},
+                  "discrete line Y requires input path order")
+        else:
+            check(enc["y"]["type"] == "quantitative", "quantitative Y required")
         check(not {"start", "stack_order", "category_id"} & fields and not {"xOffset", "yOffset", "x2", "y2"} & set(enc), "bar fields in xy chart")
-        if enc["x"]["type"] == "quantitative":
-            check(all(type(r["x"]) in (int, float) for r in rows), "numeric x required")
+        for axis in ("x", "y"):
+            if enc[axis]["type"] == "quantitative":
+                check(enc[axis]["field"] == axis and all(type(r[axis]) in (int, float) for r in rows),
+                      "numeric " + axis + " required")
     if "path_order" in fields:
         check(mark == "line" and enc.get("order") == {"field": "path_order", "type": "quantitative"}, "path ordering required")
     if "stack_order" in fields:

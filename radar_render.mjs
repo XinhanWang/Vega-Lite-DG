@@ -6,6 +6,38 @@ const color = {scale: 'color', field: '__series'};
 const measure = text => Array.from(String(text)).reduce((sum, ch) =>
   sum + (/\p{Script=Han}/u.test(ch) ? 1 : .65), 0);
 
+const NUMBER_SIZE = 9;
+const NUMBER_OFFSET = -7;
+
+function fitValueLabels(observations, ticks) {
+  // Keep labels at their owning data points and give radial ticks priority.
+  const bounds = (x, y, label, centered) => {
+    const width = measure(label) * NUMBER_SIZE;
+    const left = centered ? x - width / 2 : x;
+    return {left: left - 1, right: left + width + 1, top: y - NUMBER_SIZE - 2, bottom: y + 2};
+  };
+  const occupied = ticks.map(({x, y, label}) => bounds(x, y, label, false));
+  for (const row of observations) {
+    const box = bounds(row.__px, row.__py + NUMBER_OFFSET, row.__label, true);
+    if (occupied.some(other => box.left < other.right && other.left < box.right
+        && box.top < other.bottom && other.top < box.bottom)) {
+      row.__label = null;
+    } else {
+      occupied.push(box);
+    }
+  }
+}
+
+export function radarPreview(compact) {
+  assert.equal(compact.usermeta?.chartType, 'radar');
+  assert.deepEqual(compact.usermeta.table_export?.tables, [{id: 'data', path: '/data/values'}]);
+  assert.equal(compact.encoding.y.title, null);
+  return renderRadarSource(compact, {
+    variant: 'line', grid: 'polygon', rotation: -90, tickCount: 5,
+    closed: true, point: false, strokeWidth: 2, strokeDash: [],
+  });
+}
+
 /** Draw the synthetic source image with its sampled presentation settings. */
 export function renderRadarSource(compact, options) {
   const categories = compact.encoding.x.sort;
@@ -24,6 +56,11 @@ export function renderRadarSource(compact, options) {
   };
   const observations = [];
   const stacked = options.variant === 'stacked_polar_bar';
+  const polarBar = options.variant === 'polar_bar' || stacked;
+  if (stacked) assert(series.length >= 2, 'Stacked radar requires at least two series');
+  if (options.variant === 'filled') {
+    assert(series.length <= 4 && options.closed !== false, 'Filled radar requires a closed outline and at most four series');
+  }
   for (let i = 0; i < count; i++) {
     let cumulative = 0;
     for (let s = 0; s < series.length; s++) {
@@ -37,10 +74,11 @@ export function renderRadarSource(compact, options) {
       const groupedWidth = halfWidth * 2 / series.length;
       const arcStart = angle + Math.PI / 2 - halfWidth + (stacked ? 0 : s * groupedWidth);
       const arcEnd = stacked ? angle + Math.PI / 2 + halfWidth : arcStart + groupedWidth * .9;
+      const labelAngle = polarBar ? (arcStart + arcEnd) / 2 - Math.PI / 2 : angle;
       observations.push({...row, __series: series[s], __order: i,
-        __px: center + outer * Math.cos(angle), __py: center + outer * Math.sin(angle),
+        __px: center + outer * Math.cos(labelAngle), __py: center + outer * Math.sin(labelAngle),
         __inner: inner, __outer: outer, __start: arcStart, __end: arcEnd,
-        __label: String(Number(row.value.toPrecision(4)))});
+        __label: String(row.value)});
       cumulative += row.value;
     }
   }
@@ -86,7 +124,6 @@ export function renderRadarSource(compact, options) {
     : [{type: 'group', from: {facet: {name: 'ring', data: 'rings', groupby: 'ring'}}, marks: [
       {type: 'line', from: {data: 'ring'}, sort: {field: 'order'}, encode: {enter: {
         x: field('x'), y: field('y'), interpolate: value('linear-closed'), stroke: value('#dddddd')}}}]}];
-  const polarBar = options.variant === 'polar_bar' || stacked;
   const dataMarks = polarBar
     ? [{type: 'arc', from: {data: 'observations'}, encode: {enter: {
       x: value(center), y: value(center), innerRadius: field('__inner'), outerRadius: field('__outer'),
@@ -99,9 +136,12 @@ export function renderRadarSource(compact, options) {
         fill: color, fillOpacity: value(options.variant === 'filled' ? .22 : 0)}}}]}];
   if (options.point && !polarBar) dataMarks.push({type: 'symbol', from: {data: 'observations'}, encode: {enter: {
     x: field('__px'), y: field('__py'), fill: color, size: value(count > 20 ? 18 : 35)}}});
-  if (options.valueLabels) dataMarks.push({type: 'text', from: {data: 'observations'}, encode: {enter: {
-    x: field('__px'), y: field('__py'), dy: value(-7), text: field('__label'),
-    fill: color, fontSize: value(9), align: value('center'), baseline: value('bottom')}}});
+  if (options.valueLabels) {
+    fitValueLabels(observations, ticks);
+    dataMarks.push({type: 'text', from: {data: 'valueLabels'}, encode: {enter: {
+      x: field('__px'), y: field('__py'), dy: value(NUMBER_OFFSET), text: field('__label'),
+      fill: color, fontSize: value(NUMBER_SIZE), align: value('center'), baseline: value('bottom')}}});
+  }
   const width = Math.max(center * 2 + 25, legendColumns * legendWidth + 25);
   const height = center * 2 + 35 + Math.ceil(legend.length / legendColumns) * 23;
   const result = {
@@ -110,7 +150,9 @@ export function renderRadarSource(compact, options) {
     data: [{name: 'observations', values: observations}, {name: 'spokes', values: spokes},
       {name: 'rings', values: rings}, {name: 'gridCircles', values: Array.from({length: options.tickCount}, (_, i) =>
         ({radius: radius * (i + 1) / options.tickCount}))},
-      {name: 'labels', values: labels}, {name: 'ticks', values: ticks}, {name: 'legend', values: legend}],
+      {name: 'labels', values: labels}, {name: 'ticks', values: ticks}, {name: 'legend', values: legend},
+      ...(options.valueLabels ? [{name: 'valueLabels', source: 'observations',
+        transform: [{type: 'filter', expr: 'datum.__label !== null'}]}] : [])],
     scales: [{name: 'color', type: 'ordinal', domain: series, range: {scheme: 'tableau10'}}],
     marks: [...gridMarks, {type: 'rule', from: {data: 'spokes'}, encode: {enter: {
       x: field('x'), y: field('y'), x2: field('x2'), y2: field('y2'), stroke: value('#cccccc'), strokeWidth: value(.8)}}},

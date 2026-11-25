@@ -31,118 +31,104 @@
     "weighted": {
       "all": {
         "profile": [
-          {"value": "publication_clean", "weight": 44},
-          {"value": "compact_report", "weight": 18},
-          {"value": "monochrome_minimal", "weight": 12},
-          {"value": "colorful_analytic", "weight": 12},
-          {"value": "editorial", "weight": 10},
-          {"value": "dark_contrast", "weight": 4}
-        ]
-      },
-      "barh_1": {
-        "aspect_ratio": [
-          {"value": 1.1, "weight": 20},
-          {"value": 1.5, "weight": 60},
-          {"value": 2.15, "weight": 20}
-        ]
-      },
-      "barh_n": {
-        "aspect_ratio": [
-          {"value": 1.1, "weight": 20},
-          {"value": 1.5, "weight": 60},
-          {"value": 2.15, "weight": 20}
+          {
+            "value": "publication_clean",
+            "weight": 4
+          },
+          {
+            "value": "compact_report",
+            "weight": 3
+          },
+          {
+            "value": "monochrome_minimal",
+            "weight": 2
+          },
+          {
+            "value": "colorful_analytic",
+            "weight": 3
+          },
+          {
+            "value": "editorial",
+            "weight": 2
+          },
+          {
+            "value": "dark_contrast",
+            "weight": 1
+          }
         ]
       },
       "barh_stack": {
-        "aspect_ratio": [
-          {"value": 1.1, "weight": 20},
-          {"value": 1.5, "weight": 60},
-          {"value": 2.15, "weight": 20}
-        ],
         "stack_mode": [
-          {"value": "absolute", "weight": 72},
-          {"value": "percent", "weight": 28}
-        ]
-      },
-      "barv_1": {
-        "aspect_ratio": [
-          {"value": 1.05, "weight": 20},
-          {"value": 1.5, "weight": 60},
-          {"value": 2.1, "weight": 20}
-        ]
-      },
-      "barv_n": {
-        "aspect_ratio": [
-          {"value": 1.05, "weight": 20},
-          {"value": 1.5, "weight": 60},
-          {"value": 2.1, "weight": 20}
+          {
+            "value": "absolute",
+            "weight": 3
+          },
+          {
+            "value": "percent",
+            "weight": 1
+          }
         ]
       },
       "barv_stack": {
-        "aspect_ratio": [
-          {"value": 1.05, "weight": 20},
-          {"value": 1.5, "weight": 60},
-          {"value": 2.1, "weight": 20}
-        ],
         "stack_mode": [
-          {"value": "absolute", "weight": 72},
-          {"value": "percent", "weight": 28}
+          {
+            "value": "absolute",
+            "weight": 3
+          },
+          {
+            "value": "percent",
+            "weight": 1
+          }
         ]
       },
       "line_1": {
-        "aspect_ratio": [
-          {"value": 1, "weight": 20},
-          {"value": 1.28, "weight": 60},
-          {"value": 1.75, "weight": 20}
-        ],
         "x_mode": [
-          {"value": "numeric", "weight": 25},
-          {"value": "temporal", "weight": 45},
-          {"value": "categorical", "weight": 30}
+          {
+            "value": "categorical",
+            "weight": 4
+          },
+          {
+            "value": "temporal",
+            "weight": 2
+          },
+          {
+            "value": "numeric",
+            "weight": 4
+          }
         ]
       },
       "line_n": {
-        "aspect_ratio": [
-          {"value": 1, "weight": 20},
-          {"value": 1.28, "weight": 60},
-          {"value": 1.75, "weight": 20}
-        ],
         "x_mode": [
-          {"value": "numeric", "weight": 25},
-          {"value": "temporal", "weight": 45},
-          {"value": "categorical", "weight": 30}
+          {
+            "value": "categorical",
+            "weight": 4
+          },
+          {
+            "value": "temporal",
+            "weight": 2
+          },
+          {
+            "value": "numeric",
+            "weight": 4
+          }
         ]
       },
       "pie": {
-        "aspect_ratio": [
-          {"value": 1.08, "weight": 20},
-          {"value": 1.31, "weight": 60},
-          {"value": 1.65, "weight": 20}
-        ],
         "value_mode": [
-          {"value": "percent", "weight": 92},
-          {"value": "absolute", "weight": 8}
-        ],
-        "donut": [
-          {"value": true, "weight": 18},
-          {"value": false, "weight": 82}
-        ]
-      },
-      "boxplot": {
-        "aspect_ratio": [
-          {"value": 1.03, "weight": 20},
-          {"value": 1.31, "weight": 60},
-          {"value": 1.62, "weight": 20}
-        ],
-        "orientation": [
-          {"value": "vertical", "weight": 75},
-          {"value": "horizontal", "weight": 25}
+          {
+            "value": "percent",
+            "weight": 3
+          },
+          {
+            "value": "absolute",
+            "weight": 2
+          }
         ]
       }
     }
   },
   "workers": 5,
   "target_side": 1036,
-  "notes": "ChartArena scan-oriented numeric charts with 100 candidates per benchmark family; scatter adds 50 VSR candidates.",
+  "notes": "General diversity sampler with configurable training-task weights.",
   "render_workers": 4
 }

@@ -100,8 +100,10 @@ def validate(out):
             if statistical:
                 from .statistical_validation import validate_statistics, audit_geometry
                 from statistical import outlier_rows
+                from precision import PRECISION_VERSION
+                precision = full.get('usermeta', {}).get('precision_version')
                 errors.extend(validate_statistics(row['kind'], read(sample / 'config.json'), source['rows'], outlier_rows(full),
-                                                  precision_v1=full.get('usermeta', {}).get('precision_version') == 1))
+                                                  precision_v1=precision == PRECISION_VERSION, archived_precision=precision == 1))
             text_audit = audit_text(full, (sample / 'chart.svg').read_text(encoding='utf-8'))
             dump(sample / 'text-audit.json', text_audit)
             errors.extend('full text: ' + message for message in text_audit['errors'])

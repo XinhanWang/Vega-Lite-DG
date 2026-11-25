@@ -12,12 +12,12 @@ and `legend_position` (`left`, `right`, `top`, `bottom`).
 
 | Type | Controls |
 | --- | --- |
-| `pie` | `family`: balanced/dominant/long_tail/bimodal; `donut`: boolean; `value_mode`: percent/absolute; `value_title`: optional scientific metric name and unit; `label_mode`: legend_value/value/category_value; `zero_count`: 0 to category_count − 1 (default 0) |
+| `pie` | `family`: balanced/dominant/long_tail/bimodal; `donut`: boolean; `value_mode`: percent/absolute; `value_title`: optional scientific metric name and unit; `label_mode`: legend_value/value/category_value/category/none; `zero_count`: 0 to category_count − 1 (default 0) |
 | `boxplot` | `family`: normal/uniform/skewed/bimodal/heavy_tail; `orientation`: horizontal/vertical; `outlier_mode`: none/natural/injected |
 
-Visible percentage labels sum to 100%. The corresponding numeric proportions sum to 1. Absolute values are displayed in the full
-chart; percentage targets never encode a hidden original total. Category names
-and values remain observable through labels or legends.
+Pie sampling resolves the value mode, legend and label mode together. Absolute pies and donuts display every value in the legend or at its sector. The displayed decimal text comes from the same values as Compact GT. A pie without a legend uses category names at the sectors.
+
+Percentage pies and donuts can show or hide the positive-sector values. The probability defaults to 0.75 when no sampling policy sets it. An explicit label mode takes precedence over the percentage label probability. When positive values are hidden and the legend is disabled, sector labels still show the category names. The percentage fractions sum to 1 in the table.
 
 Pie values are finite and nonnegative, with at least one positive value.
 `controls.pie.zero_count` samples the requested number of zero categories.
@@ -32,24 +32,26 @@ without rounding legitimate interpolated values such as `31.7825`. Number
 cleanup only shortens repeated binary tails within one ULP; it has no fixed
 decimal-place or significant-digit limit. `lower` and
 `upper` are actual observations inside the fences; outliers are sorted and
-kept separately. Precision V1 rounds the computed summary and outliers together, raising precision when necessary to preserve order and Tukey fence membership. Audit observations stay in config.json, outside training GT.
+kept separately. Precision V2 rounds the computed summary and outliers together. If rounding collapses a positive interquartile range or changes Tukey fence membership, the generator draws another candidate, up to four attempts. Audit observations stay in `config.json`, outside training GT.
 
 ## Compact GT
 
 - Both targets copy their semantic columns directly from Full `data.values`.
   Record order, category/value associations, number representations and outlier
   point order are preserved exactly. Extraction does not normalize precision,
-  sort records or recompute statistics. Precision V1 quantizes the generated scientific table before Full or Compact is built.
+  sort records or recompute statistics. Precision V2 quantizes the generated scientific table before Full or Compact is built.
 - Pie uses `category/value`, one `arc` mark and `theta/color` mappings.
   The top-level `title` names the chart. Set `value_title` in the generation
   config to retain a scientific metric and unit as `theta.title`. Both modes
   omit this field by default. Historic `Share (%)` and `Value` title placeholders
   remain readable in archived Compact GT and are omitted when projecting Full.
   Percentage pies store fractions such as `0.54` for `54%` and carry
-  `theta.format: ".4~p"` by default, matching Chart Annotation Studio. More
-  precise values use `.N~p`. Historical `.0%` and `.12~%` remain valid Compact formats. Absolute values
-  retain their original numbers and omit the format, including when their title
-  contains `%`. The Compact GT omits sector ordering, window transforms, and
+  `theta.format: ".4~p"` by default, matching Chart Annotation Studio. The
+  format stays present when numeric labels are hidden. New percentages have up
+  to two decimal places in percentage points. Largest-remainder apportionment
+  keeps their total at 100%. Historical higher-precision `.N~p`, `.0%` and
+  `.12~%` remain valid Compact formats. Absolute values follow the ordinary
+  numeric precision rule and omit the format, including when their title contains `%`. The Compact GT omits sector ordering, window transforms, and
   donut and label styling. Legacy Compact without the format remains readable.
   Vega-Lite 6.5.0 uses the format when compiling the arc's accessibility
   description. Strict Schema validation rejects `theta.format`. The preview

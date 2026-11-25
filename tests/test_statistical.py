@@ -184,8 +184,89 @@ class StatisticalTests(unittest.TestCase):
             labels = full['encoding']['color']['legend']['labelExpr']
             for row in cfg['rows']:
                 self.assertIn(f'{row["value"]:g}', labels)
-        cfg = sample_config('pie', 18, {'show_legend': False})
+        cfg = sample_config('pie', 18, {'show_legend': False, 'value_mode': 'absolute'})
         self.assertEqual(cfg['label_mode'], 'category_value')
+
+    def test_pie_resolves_label_sampling_by_mode_and_legend(self):
+        for donut in (False, True):
+            for legend in (False, True):
+                for mode in ("absolute", "percent"):
+                    with self.subTest(donut=donut, legend=legend, mode=mode):
+                        cfg = sample_config("pie", 81, {
+                            "value_mode": mode, "donut": donut, "show_legend": legend, "zero_count": 1,
+                        }, sampling={"value_labels": False})
+                        self.assertEqual(cfg["show_legend"], legend)
+                        if mode == "absolute":
+                            self.assertIn(cfg["label_mode"], {"legend_value", "value", "category_value"})
+                            if not legend:
+                                self.assertEqual(cfg["label_mode"], "category_value")
+                        else:
+                            self.assertEqual(cfg["label_mode"], "none" if legend else "category")
+                        full, target, source = build_pair("pie", cfg, precision_v1=True)
+                        self.assertEqual(full["layer"][0]["mark"]["innerRadius"] > 0, donut)
+                        self.assertEqual(project_rows(full), source["rows"])
+                        self.assertEqual(target["data"]["values"], source["rows"])
+                        self.assertEqual(target["usermeta"]["table_export"]["tables"], [{"id": "data", "path": "/data/values"}])
+                        self.assertEqual(target["encoding"]["theta"].get("format"), ".4~p" if mode == "percent" else None)
+                        zero_layer = any(layer["name"] == "zero_labels" for layer in full["layer"])
+                        self.assertEqual(zero_layer, not legend)
+
+        cfg = sample_config("pie", 81, {"value_mode": "absolute", "label_mode": "none"})
+        self.assertEqual(cfg["label_mode"], "legend_value")
+        cfg["label_mode"] = "none"  # Historical saved configuration.
+        full, _, _ = build_pair("pie", cfg)
+        self.assertEqual(full["usermeta"]["semantic"]["options"]["label_mode"], "legend_value")
+
+    def test_percent_precision_is_declared_even_with_numeric_labels_disabled(self):
+        for values, fractional, fmt in (
+            ((12.34, 87.66), (.1234, .8766), ".4~p"),
+            ((12.3456789, 87.6543211), (.1235, .8765), ".4~p"),
+        ):
+            with self.subTest(format=fmt):
+                cfg = sample_config("pie", 127, {
+                    "category_count": 2, "value_mode": "percent", "label_mode": "none",
+                })
+                cfg["rows"] = [dict(category=name, value=value) for name, value in zip(cfg["categories"], values)]
+                full, target, _ = build_pair("pie", cfg, precision_v1=True)
+                self.assertEqual([row["value"] for row in target["data"]["values"]], list(fractional))
+                self.assertEqual(project_rows(full), target["data"]["values"])
+                self.assertEqual(target["encoding"]["theta"]["format"], fmt)
+                self.assertEqual(render_spec(target)["encoding"]["tooltip"]["format"], fmt)
+                self.assertEqual(len(full["layer"]), 1)
+
+    def test_rendered_pie_labels_match_precision_and_show_zero_categories(self):
+        configs = [
+            ("absolute", True, "legend_value", (1234567.125, 1234567.126, 0),
+             ("A: 1234567.13", "B: 1234567.13", "C: 0")),
+            ("absolute", False, "category_value", (1234567.125, 1234567.126, 0),
+             ("A: 1234567.13", "B: 1234567.13", "C: 0")),
+            ("absolute", True, "value", (1234567.125, 1234567.126, 0),
+             ("1234567.13", "1234567.13", "C: 0")),
+            ("percent", False, "category", (12.3456789, 87.6543211, 0), ("A", "B", "C: 0%")),
+            ("percent", True, "legend_value", (12.3456789, 87.6543211, 0),
+             ("A: 12.35%", "B: 87.65%", "C: 0%")),
+        ]
+        specs = []
+        for mode, legend, labels, values, expected in configs:
+            cfg = sample_config("pie", 81, {
+                "category_count": 3, "value_mode": mode, "donut": not legend,
+                "show_legend": legend, "label_mode": labels,
+            })
+            cfg.update(categories=["A", "B", "C"],
+                       rows=[dict(category=name, value=value) for name, value in zip("ABC", values)])
+            full, target, _ = build_pair("pie", cfg, precision_v1=True)
+            if mode == "absolute":
+                self.assertEqual([row["value"] for row in target["data"]["values"]], [1234567.13, 1234567.13, 0])
+            if labels in {"category", "category_value"}:
+                self.assertIsNone(full["config"]["view"]["stroke"])
+            specs.append(full)
+        from xml.etree import ElementTree
+        for spec, result, (_, _, _, _, expected) in zip(specs, render_specs(specs), configs):
+            self.assert_render_warnings(spec, result)
+            text = ["".join(node.itertext()) for node in ElementTree.fromstring(result["svg"]).iter()
+                    if node.tag.endswith("}text")]
+            for label in expected:
+                self.assertIn(label, text)
 
     def test_compact_has_no_sampled_visual_settings_or_duplicate_order_arrays(self):
         forbidden = {'width', 'height', 'font', 'fontSize', 'fontWeight', 'background', 'grid', 'strokeWidth',

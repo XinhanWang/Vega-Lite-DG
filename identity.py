@@ -2,9 +2,9 @@
 from __future__ import annotations
 import copy
 
-ROW_FIELDS = ("category", "category_id", "value", "x", "x_id", "y", "lower", "upper",
+ROW_FIELDS = ("category", "category_id", "value", "x", "x_id", "y", "y_id", "lower", "upper",
               "path_order", "stack_order", "start", "end", "series", "series_id")
-IDENTITIES = {"category": ("category_id", "C"), "x": ("x_id", "X"), "series": ("series_id", "S")}
+IDENTITIES = {"category": ("category_id", "C"), "x": ("x_id", "X"), "y": ("y_id", "Y"), "series": ("series_id", "S")}
 
 
 def order_row(row: dict) -> dict:

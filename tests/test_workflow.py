@@ -55,7 +55,7 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             dump(root / 'config.json', {})
-            for version in (None, '3.0.0', '3.0.1'):
+            for version in (None, '3.0.0', '3.0.1', '3.5.2', '3.5.3', '3.5.4'):
                 dump(root / 'run/run.json', {'generator_version': GENERATOR_VERSION,
                     'contract': CONTRACT, 'projection_version': version})
                 before = (root / 'run/run.json').read_bytes()
@@ -74,7 +74,7 @@ class WorkflowTests(unittest.TestCase):
             task = {'kind': 'barv_1', 'seed': 101, 'output': directory,
                     'controls': {'n_categories': 4}}
             with patch('workflow.samples.generate_chart', side_effect=AssertionError('Must reuse saved sample')):
-                with patch('workflow.samples.sample_config', side_effect=AssertionError('Valid provenance must not resample')):
+                with patch('workflow.samples.sample_at_precision', side_effect=AssertionError('Valid provenance must not resample')):
                     reused = obtain_sample(task)
             self.assertEqual(reused['config'], sample['config'])
             self.assertEqual(reused['sample_seed'], 101)

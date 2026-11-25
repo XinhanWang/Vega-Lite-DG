@@ -12,24 +12,7 @@
     "pie": 1,
     "boxplot": 1
   },
-  "controls": {
-    "all": {
-      "profile": "publication_clean"
-    },
-    "barv_stack": {
-      "stack_mode": "absolute"
-    },
-    "barh_stack": {
-      "stack_mode": "absolute"
-    },
-    "line_1": {
-      "x_mode": "temporal"
-    },
-    "line_n": {
-      "x_mode": "categorical"
-    }
-  },
   "workers": 2,
   "target_side": 1036,
-  "notes": "Synthetic digital ChartArena-family configurations for supported bar, line, pie and boxplot templates. Bar/line reuse the VSR samplers with clean readable styling. Radar, combination, flowchart and mind map have no native DG template."
+  "notes": "General diversity sampler. Counts and seed select the workload."
 }

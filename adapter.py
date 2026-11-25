@@ -18,7 +18,7 @@ import math
 import re
 from typing import Any
 
-from ordering import first_seen, visual_rows
+from ordering import first_seen, line_y_labels, visual_rows
 from spec_format import format_spec
 
 
@@ -27,7 +27,7 @@ KINDS = (
     "line_1", "line_n", "scatter_1", "scatter_n", "barh_stack",
 )
 SCHEMA = "https://vega.github.io/schema/vega-lite/v6.json"
-VERSION = "3.5.2"
+VERSION = "3.5.5"
 DECORATION_PREFIX = "__vsr_decoration_"
 
 
@@ -189,16 +189,27 @@ def _rows(kind: str, cfg: dict, names: list[str]) -> list[dict]:
         mode = cfg.get("x_mode", "numeric")
         if mode not in {"numeric", "categorical", "temporal"}:
             raise ValueError(f"Unsupported line x mode: {mode}")
+        y_mode = cfg.get("y_mode", "numeric")
+        if y_mode not in {"numeric", "categorical"} or y_mode == "categorical" and mode != "numeric":
+            raise ValueError("Categorical line Y requires numeric X")
+        positions = {}
+        if y_mode == "categorical":
+            y_labels = line_y_labels(matrix)
+            for value in y_labels:
+                if not (isinstance(value, str) and value):
+                    _number(value, "line Y category")
+            # Nominal Vega-Lite Y orders labels from top to bottom.
+            positions = {value: rank for rank, value in enumerate(reversed(y_labels))}
         xs = cfg["x_values"] if mode == "numeric" else list(range(len(labels)))
         if len(xs) != len(labels):
             raise ValueError("x_values and x_labels have incompatible lengths")
         for p, label in enumerate(labels):
             for s, values in enumerate(matrix):
                 x = _number(xs[p], "line x")
-                y = _number(values[p], "line y")
+                y = values[p] if positions else _number(values[p], "line y")
                 row = identity(s, p)
                 row.update(x=x if mode == "numeric" else str(label), x_label=str(label),
-                           y=y, value=y, plot_x=x, plot_y=y,
+                           y=y, value=y, plot_x=x, plot_y=positions.get(y, y),
                            category_id=f"c{p:04d}", category_index=p,
                            category=str(label), category_position=p)
                 if mode == "temporal":
@@ -238,6 +249,8 @@ def _native(cfg: dict) -> dict:
 
 
 def _limits(cfg: dict, axis: str, rows: list[dict], kind: str) -> list[float]:
+    if kind.startswith("line") and axis == "y" and cfg.get("y_mode") == "categorical":
+        return [-0.5, len(line_y_labels(cfg["matrix"])) - 0.5]
     axes = _native(cfg)
     lim = axes.get(f"{axis}lim", axes.get(f"{axis}_lim"))
     if lim is None:
@@ -295,7 +308,11 @@ def _axis(cfg: dict, axis: str, kind: str) -> dict:
     category_axis = "y" if kind.startswith("barh") else "x"
     ticks = axes.get(f"{axis}ticks", axes.get(f"{axis}_ticks"))
     tick_labels = axes.get(f"{axis}ticklabels", axes.get(f"{axis}_ticklabels"))
-    if kind.startswith("bar") and axis == category_axis:
+    line_discrete_y = kind.startswith("line") and axis == "y" and cfg.get("y_mode") == "categorical"
+    if line_discrete_y:
+        tick_labels = line_y_labels(cfg["matrix"])
+        ticks = list(reversed(range(len(tick_labels))))
+    elif kind.startswith("bar") and axis == category_axis:
         ticks = list(range(len(cfg["labels"])))
         tick_labels = cfg["labels"]
     elif kind.startswith("line") and axis == "x":
@@ -311,10 +328,10 @@ def _axis(cfg: dict, axis: str, kind: str) -> dict:
         result["values"] = list(ticks)
     # Numeric Matplotlib labels can be mantissas with an external offset.  Vega
     # formats the real values instead; copying those mantissas loses units.
-    categorical_labels = (kind.startswith("bar") and axis == category_axis) or (
+    categorical_labels = line_discrete_y or (kind.startswith("bar") and axis == category_axis) or (
         kind.startswith("line") and axis == "x")
     offset = axes.get(f"{axis}_offset_text", axes.get(f"{axis}offset", ""))
-    discrete_labels = (kind.startswith("bar") and axis == category_axis) or (
+    discrete_labels = line_discrete_y or (kind.startswith("bar") and axis == category_axis) or (
         kind.startswith("line") and axis == "x" and cfg.get("x_mode", "numeric") != "numeric")
     axis_format = axes.get(f"{axis}_format")
     if not discrete_labels and axis_format is not None:
@@ -332,7 +349,8 @@ def _axis(cfg: dict, axis: str, kind: str) -> dict:
 
 def _channel(cfg: dict, axis: str, field: str, limits: dict, kind: str) -> dict:
     native = _native(cfg)
-    scale_type = native.get(f"{axis}scale", native.get(f"{axis}_scale", "linear"))
+    discrete_y = kind.startswith("line") and axis == "y" and cfg.get("y_mode") == "categorical"
+    scale_type = "linear" if discrete_y else native.get(f"{axis}scale", native.get(f"{axis}_scale", "linear"))
     if scale_type not in {"linear", "log", "symlog", "sqrt", "pow", "time", "utc"}:
         raise ValueError(f"Unsupported source {axis} scale: {scale_type}")
     domain = limits[axis]
@@ -620,7 +638,23 @@ def _reference_layers(kind: str, cfg: dict, limits: dict, width: float, height: 
     return result
 
 
-def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False, precision_v1: bool = False) -> tuple[dict, dict, dict]:
+def scientific_rows(kind, cfg, *, precision=False):
+    rows = _rows(kind, cfg, _series_names(kind, cfg))
+    if precision:
+        from precision import PERCENT_SPECIFIER, project_rows
+        axes = _native(cfg)
+        percent_axes = {}
+        for axis in ("x", "y"):
+            fmt = axes.get(axis + "_format")
+            if isinstance(fmt, str) and PERCENT_SPECIFIER.fullmatch(fmt):
+                percent_axes[axis] = True  # Already stored as fractions.
+        project_rows(kind, rows, percent_stack=cfg.get("stack_mode") == "percent",
+                     discrete_line_y=kind.startswith("line") and cfg.get("y_mode") == "categorical",
+                     percent_axes=percent_axes)
+    return rows
+
+
+def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False, precision_v1: bool = False, observation_rows=None) -> tuple[dict, dict, dict]:
     """Return independently renderable full/compact specs and canonical evidence.
 
     ``cfg['_render_axes']`` retains the existing configuration schema for axis
@@ -632,10 +666,7 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False, prec
         raise ValueError(f"Unsupported chart kind {kind!r}; expected one of {KINDS}")
     cfg = _plain(cfg)
     names = _series_names(kind, cfg)
-    rows = _rows(kind, cfg, names)
-    if precision_v1:
-        from precision import project_rows
-        project_rows(kind, rows, percent_stack=cfg.get("stack_mode") == "percent")
+    rows = copy.deepcopy(observation_rows) if observation_rows is not None else scientific_rows(kind, cfg, precision=precision_v1)
     limits = {axis: _limits(cfg, axis, rows, kind) for axis in ("x", "y")}
     style = cfg.get("style", {})
     figsize = style.get("figsize", [8, 5.5])
@@ -674,7 +705,7 @@ def build_geometry_pair(kind: str, cfg: dict, *, fit_to_data: bool = False, prec
     semantic = {
         "kind": kind,
         "x_mode": cfg.get("x_mode", "categorical" if kind.startswith("barv") else "numeric"),
-        "y_mode": "categorical" if kind.startswith("barh") else "numeric",
+        "y_mode": "categorical" if kind.startswith("barh") else cfg.get("y_mode", "numeric"),
         "grouping": "stacked" if kind in {"barv_stack", "barh_stack"} else "grouped" if kind in {"barh_n", "barv_n"} else "series",
         "stack_mode": cfg.get("stack_mode"),
         "category_order": first_seen(rows, "category_id") if "category_id" in rows[0] else [],
@@ -763,9 +794,23 @@ def _add_value_labels(full, kind, cfg):
         else:
             x, y, value = row["plot_x"], row["plot_y"], row["y"]
         group = 0 if stacked or not bar else (1 if value >= 0 else -1)
-        label = f"{value:.4g}"
-        if stacked and cfg.get("stack_mode") == "percent":
-            label += "%"
+        if isinstance(value, str):
+            label = value
+        elif full["usermeta"].get("precision_version", 0) >= 2:
+            from precision import PERCENT_SPECIFIER
+            from statistical import pie_label
+            value_axis = "x" if horizontal else "y"
+            fmt = (primary[value_axis].get("axis") or {}).get("format")
+            if isinstance(fmt, str) and PERCENT_SPECIFIER.fullmatch(fmt):
+                label = pie_label(value, True, fmt)
+            elif stacked and cfg.get("stack_mode") == "percent":
+                label = f"{value}%"
+            else:
+                label = str(value)
+        else:
+            label = f"{value:.4g}"
+            if stacked and cfg.get("stack_mode") == "percent":
+                label += "%"
         layers.setdefault(group, []).append({"x": x, "y": y, "label": label})
     for group, data in layers.items():
         direction = group * (-1 if primary["x" if horizontal else "y"]["scale"].get("reverse") else 1)
@@ -787,17 +832,21 @@ def _add_value_labels(full, kind, cfg):
                               "data": {"values": data}, "mark": mark, "encoding": encoding})
 
 
-def build_pair(kind: str, cfg: dict, *, precision_v1: bool = False) -> tuple[dict, dict, dict]:
+def build_pair(kind: str, cfg: dict, *, precision_v1: bool = False, observation_rows=None) -> tuple[dict, dict, dict]:
     """Render-ready full specification and minimal semantic training target."""
     if kind in {"pie", "boxplot"}:
         from statistical import build_pair as build_statistical_pair
-        return build_statistical_pair(kind, cfg, precision_v1=precision_v1)
+        return build_statistical_pair(kind, cfg, precision_v1=precision_v1, observation_rows=observation_rows)
     from text_layout import apply_text_layout
     from presentation import apply_presentation
-    full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True, precision_v1=precision_v1)
+    full, _, source = build_geometry_pair(kind, cfg, fit_to_data=True, precision_v1=precision_v1, observation_rows=observation_rows)
     full['usermeta']['semantic_labels'] = {key: source[key] for key in ('title', 'x_title', 'y_title')}
-    full = apply_text_layout(apply_presentation(full, cfg))
-    if cfg.get("sampling", {}).get("value_labels"):
+    sampling = cfg.get("sampling", {})
+    full = apply_text_layout(apply_presentation(full, cfg), fit_dense_x="aspect_ratio" in sampling)
+    if precision_v1:
+        from precision import PRECISION_VERSION
+        full['usermeta']['precision_version'] = PRECISION_VERSION
+    if sampling.get("value_labels"):
         _add_value_labels(full, kind, cfg)
     source['presentation'] = copy.deepcopy(full['usermeta']['presentation'])
     source['plot_layout']['final_plot_size'] = [full['width'], full['height']]

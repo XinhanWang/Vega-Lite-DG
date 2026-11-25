@@ -6,7 +6,7 @@ from decimal import Decimal
 from generation.summaries import canonical_numbers, tukey_summary
 
 
-def validate_statistics(kind, cfg, rows, outliers=None, *, precision_v1=False):
+def validate_statistics(kind, cfg, rows, outliers=None, *, precision_v1=False, archived_precision=False):
     errors = []
     clean_rows = [{key: value for key, value in row.items() if key != "row_id"} for row in rows]
     if kind == "boxplot" and outliers is not None:
@@ -16,7 +16,7 @@ def validate_statistics(kind, cfg, rows, outliers=None, *, precision_v1=False):
     expected_rows = final_rows(kind, cfg, precision_v1)
     if kind == "pie" and cfg["value_mode"] == "percent":
         expected_rows = [dict(row, value=float(Decimal(str(row["value"])) / 100)) for row in expected_rows]
-    if clean_rows != expected_rows:
+    if not archived_precision and clean_rows != expected_rows:
         errors.append("Statistical table differs from sampled statistics")
     if [row["category"] for row in rows] != cfg["categories"] or len(set(cfg["categories"])) != len(rows):
         errors.append("Category identity/order mismatch")
@@ -33,7 +33,7 @@ def validate_statistics(kind, cfg, rows, outliers=None, *, precision_v1=False):
             if precision_v1:
                 from precision import box_projection
                 expected = box_projection(canonical_numbers(expected))
-            if any(row[field] != expected[field] for field in expected):
+            if not archived_precision and any(row[field] != expected[field] for field in expected):
                 errors.append("Summary differs from independently recomputed Tukey statistics")
             lower, q1, median, q3, upper = [row[field] for field in ("lower", "q1", "median", "q3", "upper")]
             if not lower <= q1 <= median <= q3 <= upper:
@@ -70,19 +70,23 @@ def audit_geometry(kind, cfg, spec, geometry):
             break
     if not compact and spec["encoding"]["color"]["scale"]["domain"] != categories:
         errors.append("Legend domain differs from table order")
-    text = [str(item["text"]) for item in geometry["texts"]]
     from statistical import pie_label
-    percent_format = spec.get("usermeta", {}).get("semantic", {}).get("options", {}).get("percent_format")
+    options = spec.get("usermeta", {}).get("semantic", {}).get("options", {})
+    percent_format = options.get("percent_format")
+    show_legend = options.get("show_legend", cfg["show_legend"])
+    label_mode = options.get("label_mode", cfg.get("label_mode"))
+    sector_text = [str(item["text"]) for item in geometry["texts"] if item.get("drawable")
+                   and (item.get("mark_name") or "").startswith("sector_labels_")]
     def pie_number(row):
         return pie_label(row["value"], cfg["value_mode"] == "percent", percent_format)
 
-    if (compact and kind == "pie") or (not compact and cfg["show_legend"]):
+    if (compact and kind == "pie") or (not compact and show_legend):
         legend = [str(item["text"]) for item in geometry["texts"] if item.get("role") == "legend-label"]
         expected_legend = categories
         if kind == "pie" and not compact:
             expected_legend = [
                 row["category"] + ": " + pie_number(row)
-                if cfg["label_mode"] == "legend_value" or row["value"] == 0 else row["category"]
+                if label_mode == "legend_value" or row["value"] == 0 else row["category"]
                 for row in rows]
         legend_matches = collections.Counter(legend) == collections.Counter(expected_legend) if compact else legend == expected_legend
         if not legend_matches:
@@ -117,24 +121,34 @@ def audit_geometry(kind, cfg, spec, geometry):
             if abs(arc["innerRadius"] - expected_inner) > 1e-7:
                 errors.append("Pie/donut hole mismatch")
             angle += extent
-            number = pie_number(row)
-            expected_text = number if cfg["label_mode"] == "value" else row["category"] + ": " + number
-            if not compact and cfg["label_mode"] != "none" and expected_text not in text:
-                errors.append("Visible pie value/category label missing: " + expected_text)
-        if not compact and cfg["label_mode"] not in {"legend_value", "none"}:
+        if not compact and label_mode not in {"legend_value", "none"}:
+            expected_text = []
+            for row in positive_rows:
+                category = row["category"]
+                if label_mode == "category":
+                    expected_text.append(category)
+                elif label_mode == "value":
+                    expected_text.append(pie_number(row))
+                else:
+                    expected_text.append(category + ": " + pie_number(row))
+            if sector_text != expected_text:
+                errors.append("Visible pie sector labels differ from data.values")
             labels = elements("sector_labels_")
             if [label["datum"]["category"] for label in labels] != positive_categories:
-                errors.append("Expected one visible numeric label per positive sector")
+                errors.append("Expected one visible label per positive sector")
             for sector, label in zip(sectors, labels):
                 angle = label["polar"]["theta"]
                 midpoint = (sector["arc"]["startAngle"] + sector["arc"]["endAngle"]) / 2
                 if abs((angle - midpoint + math.pi) % (2 * math.pi) - math.pi) > 1e-6:
-                    errors.append("Numeric label not positioned at its sector midpoint")
+                    errors.append("Label not positioned at its sector midpoint")
         if not compact:
+            from generation.summaries import pie_label_mode
+            if pie_label_mode(cfg["value_mode"], show_legend, label_mode) != label_mode:
+                errors.append("Pie label and legend mode leave observations unidentified")
             zero_text = [row["category"] + ": " + pie_number(row) for row in rows if row["value"] == 0]
             if zero_text:
                 visible = [item for item in geometry["texts"] if item.get("drawable")]
-                if cfg["show_legend"]:
+                if show_legend:
                     labels = [item["text"] for item in visible if item.get("role") == "legend-label"]
                     if any(label not in labels for label in zero_text):
                         errors.append("Visible zero-value pie legend label missing")

@@ -1,6 +1,73 @@
 {
   "seed": 20261123,
-  "counts": {"radar": 50, "combination": 50},
+  "counts": {
+    "radar": 50,
+    "combination": 50
+  },
   "target_side": 1036,
-  "notes": "Digital numeric ChartArena families using the shared-domain radar adapter and the Studio bar-line compact GT contract."
+  "notes": "General diversity sampler with configurable training-task weights.",
+  "sampling": {
+    "weighted": {
+      "all": {
+        "profile": [
+          {
+            "value": "publication_clean",
+            "weight": 4
+          },
+          {
+            "value": "compact_report",
+            "weight": 3
+          },
+          {
+            "value": "monochrome_minimal",
+            "weight": 2
+          },
+          {
+            "value": "colorful_analytic",
+            "weight": 3
+          },
+          {
+            "value": "editorial",
+            "weight": 2
+          },
+          {
+            "value": "dark_contrast",
+            "weight": 1
+          }
+        ]
+      },
+      "radar": {
+        "variant": [
+          {
+            "value": "line",
+            "weight": 5
+          },
+          {
+            "value": "filled",
+            "weight": 3
+          },
+          {
+            "value": "polar_bar",
+            "weight": 1
+          },
+          {
+            "value": "stacked_polar_bar",
+            "weight": 1
+          }
+        ]
+      },
+      "combination": {
+        "dual_axis": [
+          {
+            "value": true,
+            "weight": 1
+          },
+          {
+            "value": false,
+            "weight": 1
+          }
+        ]
+      }
+    }
+  }
 }
