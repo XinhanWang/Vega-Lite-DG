@@ -13,6 +13,17 @@
     },
     "weighted": {
       "radar": {
+        "radial_max": [
+          {"value": 0.5, "weight": 6},
+          {"value": 1, "weight": 10},
+          {"value": 3.5, "weight": 5},
+          {"value": 5, "weight": 12},
+          {"value": 6, "weight": 7},
+          {"value": 10, "weight": 16},
+          {"value": 20, "weight": 8},
+          {"value": 100, "weight": 27},
+          {"value": 120, "weight": 9}
+        ],
         "profile": [
           {"value": "publication_clean", "weight": 44},
           {"value": "compact_report", "weight": 18},

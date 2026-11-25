@@ -69,6 +69,10 @@ def validate(policy, kinds):
                             raise ValueError("aspect_ratio must be in [.6, 3]")
                     else:
                         for target in (kinds if kind == "all" else (kind,)):
+                            if target == "radar" and field == "radial_max":
+                                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                                    raise ValueError("radial_max must be a finite positive number")
+                                continue
                             if target not in EXTENSIONS:
                                 normalize_controls(target, {field: value})
                                 continue

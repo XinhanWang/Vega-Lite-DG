@@ -108,7 +108,8 @@ def migrate_compact(args):
         full = read(target / 'full.vl.json')
         compact = normalize(full)
         dump(target / 'compact.vl.json', compact)
-        dump(target / 'compact.preview.vl.json', render_spec(compact))
+        dump(target / 'compact.preview.vl.json', render_spec(compact,
+             fit_boxplot=old.get('sampling', {}).get('text_profile') == 'expanded-v1'))
         dump(target / 'compact-migration.json', {'source_run': str(origin),
             'source_contract': previous.get('contract'), 'contract': CONTRACT,
             'copied_artifacts': hashes, 'compact_preview_rendered': False})

@@ -58,6 +58,15 @@ COMBO_METRICS = {
 }
 SERIES_ROLE_ZH = {"Series": "系列", "Group": "分组", "Batch": "批次", "Run": "轮次", "Trial": "试验", "Layer": "分层"}
 GROUP_NAME = re.compile(r"(Series|Group|Batch|Run|Trial|Layer) (\d+)\Z")
+HAN = r"[\u3400-\u9fff\U00020000-\U000323af]"
+HAN_GAP = re.compile(rf"(?<={HAN})\s+(?={HAN})")
+HAN_CONNECTOR = re.compile(rf"(?<={HAN})\s+(vs\.?|and|[&/|-])\s+(?={HAN})", re.IGNORECASE)
+
+
+def chinese_spacing(text):
+    connectors = {"/": "／", "-": "—", "|": "｜"}
+    text = HAN_CONNECTOR.sub(lambda match: connectors.get(match[1], "与"), text)
+    return HAN_GAP.sub("", text)
 
 
 @lru_cache(maxsize=1)
@@ -101,7 +110,7 @@ def sample_chart_text(kind, seed, language, category_count=0, series_count=0):
     title = text["sample_title"]("line" if family == "combination" else family)
     has_word = re.search(r"[\u4e00-\u9fff]" if zh else r"[A-Za-z]{4,}", title)
     if not has_word or rng.random() < .28:
-        title = f"{word()} - {title}"
+        title = f"{word()}—{title}" if zh else f"{word()} - {title}"
 
     def axis(pool):
         role = rng.choice(pool[language])
@@ -124,12 +133,12 @@ def sample_chart_text(kind, seed, language, category_count=0, series_count=0):
         return name
 
     result = {
-        "title": title,
+        "title": chinese_spacing(title) if zh else title,
         "category_axis": axis(CATEGORY_AXES), "value_axis": axis(MEASURE_AXES),
         "second_measure_axis": axis(MEASURE_AXES),
         "time_axis": rng.choice(TIME_AXES[language]), "index_axis": rng.choice(INDEX_AXES[language]),
-        "categories": _distinct(category, category_count),
-        "series": _distinct(series, series_count),
+        "categories": _distinct(lambda i: chinese_spacing(category(i)), category_count) if zh else _distinct(category, category_count),
+        "series": _distinct(lambda i: chinese_spacing(series(i)), series_count) if zh else _distinct(series, series_count),
     }
     if family == "combination":
         result["right_axis"] = rng.choice(COMBO_METRICS[language]) + " (%)"

@@ -3,7 +3,7 @@
 `configs/chartarena-scan.json` 用于柱图、折线图、散点图、饼图和箱线图。
 `configs/chartarena-scan-extensions.json` 用于雷达图和柱线组合图。
 
-雷达图训练 GT 使用 `mark: {"type": "line"}` 和 `usermeta.chartType: "radar"`。多系列时用 `encoding.color` 区分系列。真实极坐标预览继续使用 Full Vega 规格。
+雷达图训练 GT 使用 `mark: {"type": "line"}` 和 `usermeta.chartType: "radar"`。多系列时用 `encoding.color` 区分系列。原图使用 Full Vega 规格，GT 对照图由 Compact GT 经雷达适配器单独渲染。
 
 ```sh
 python3 bootstrap.py --with-cjk
@@ -17,8 +17,9 @@ python3 pipeline.py generate --config configs/chartarena-scan.json --output runs
 - `sampling.zh_probability` 是每张图独立采样中文的概率，默认 0.5。
 - `sampling.label_probability` 按模板设置数据点、柱或扇区的数值标注概率。柱图、折线图、饼图和柱线组合图默认 0.25。轴刻度、类别名和图例名照常显示。
 - `sampling.weighted` 以 `{"value": ..., "weight": ...}` 条目定义分布。模板级同名权重优先于 `all`，原生配置里的显式 `controls` 优先于权重采样。每个变量使用由种子、模板和字段派生的独立随机数。
+- `sampling.weighted.radar.radial_max` 采样零基径向量程上限。抽查扫描原图可见 0–0.5、0–1、0–3.5、0–5、0–10、0–20、0–100 和 0–120 等量程。配置还包含 0–6，权重是起始近似。省略此项时上限为 100。
 - `render_workers` 可以单独控制原生渲染进程数。未配置时沿用渲染器默认值。
-- 中文使用固定版本的 Noto Sans CJK SC。数值单位和日历语义保留，显示文本在构建 Full 规格与 Compact GT 之前应用。显式数值标注只进入 Full，Compact GT 保持原数据和结构。
+- 中文使用固定版本的 Noto Sans CJK SC。中文词组连写，比较和配对使用中文连接符，数值单位和日历语义保留。显示文本在构建 Full 规格与 Compact GT 之前应用。显式数值标注只进入 Full，Compact GT 保持原数据和结构。
 - `configs/production_vsr.json`、`configs/examples_vsr.json` 和旧式扩展配置仍可直接运行。要用 VSR 自然样式同时开启双语，可在一份独立的 VSR 配置中加入 `sampling.zh_probability: 0.5` 与 `sampling.text_profile: expanded-v1`。
 
 ## 参考分布

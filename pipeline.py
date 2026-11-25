@@ -27,7 +27,8 @@ def write_render_jobs(out, records, node=None):
     for row in records:
         if row['status'] == 'generated':
             sample = out / row['sample']
-            dump(sample / 'compact.preview.vl.json', render_spec(read(sample / 'compact.vl.json')))
+            dump(sample / 'compact.preview.vl.json', render_spec(read(sample / 'compact.vl.json'),
+                 fit_boxplot=row.get('sampling', {}).get('text_profile') == 'expanded-v1'))
     export_training_tables([job['output'] for job in jobs], node)
     dump(out / 'render-jobs.json', jobs)
     return jobs
@@ -66,7 +67,8 @@ def produce(task):
         dump(out / 'full.vl.json', full)
         dump(out / 'compact.vl.json', compact)
         from compact_display import render_spec
-        dump(out / 'compact.preview.vl.json', render_spec(compact))
+        dump(out / 'compact.preview.vl.json', render_spec(compact,
+             fit_boxplot=task.get('sampling', {}).get('text_profile') == 'expanded-v1'))
         dump(out / 'source.json', source)
         dump(out / 'plot-layout.json', source['plot_layout'])
         dump(out / 'generation.json', {**task, 'generator_version': GENERATOR_VERSION, 'contract': CONTRACT, 'sample_seed': result.get('sample_seed', task['seed']), 'diagnostics': result.get('diagnostics', {})})

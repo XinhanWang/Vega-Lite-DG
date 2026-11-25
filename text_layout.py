@@ -47,6 +47,25 @@ def _width(value: Any, font_size: float) -> float:
                 for line in _lines(value)), default=0)
 
 
+def fit_category_axis(spec: dict, channel: str, labels: list) -> None:
+    """Keep raw categorical tick labels legible without changing their values."""
+    axis = spec["encoding"][channel].setdefault("axis", {})
+    config = spec.get("config", {}).get("axis", {})
+    size = _number(axis.get("labelFontSize"), _number(config.get("labelFontSize"), 10))
+    axis.update(labelPadding=5, titlePadding=6, labelOverlap=False, labelBound=False, labelLimit=0)
+    if channel == "y":
+        spec["height"] = math.ceil(max(_number(spec.get("height"), 260), len(labels) * (size * 1.3 + 8)))
+        return
+    width = _number(spec.get("width"), 360)
+    horizontal = len(labels) * (max((_width(label, size) for label in labels), default=0) + 12) <= width
+    if horizontal:
+        axis.update(labelAngle=0, labelAlign="center", labelBaseline="top")
+    else:
+        axis.update(labelAngle=-45, labelAlign="right", labelBaseline="middle")
+        width = max(width, len(labels) * (size * 1.4 / math.sin(math.pi / 4) + 8))
+    spec["width"] = math.ceil(width)
+
+
 def _mapping(expression: Any) -> dict[str, Any] | None:
     if not isinstance(expression, str) or not (match := _MAPPING.fullmatch(expression)):
         return None

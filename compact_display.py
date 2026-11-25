@@ -13,7 +13,7 @@ from compact import validate_target
 from identity import migrate_spec
 
 
-def render_spec(compact: dict) -> dict:
+def render_spec(compact: dict, *, fit_boxplot=False) -> dict:
     """Return a fresh Vega-Lite preview with identical observation data/order."""
     compact = migrate_spec(compact)
     validate_target(compact)
@@ -50,4 +50,10 @@ def render_spec(compact: dict) -> dict:
             "axis": {"titleFontWeight": 400, "labelFontWeight": 400},
             "legend": {"titleFontWeight": 400, "labelFontWeight": 400},
         }
+    if fit_boxplot and isinstance(result.get("layer"), list):
+        from statistical import target_kind
+        from text_layout import fit_category_axis
+        if target_kind(compact) == "boxplot":
+            channel = "y" if enc.get("y", {}).get("field") == "category" else "x"
+            fit_category_axis(result, channel, list(dict.fromkeys(row["category"] for row in rows)))
     return result

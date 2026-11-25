@@ -217,7 +217,7 @@ def validate_compact(spec):
 
 def build_pair(kind, cfg):
     from presentation import apply_presentation
-    from text_layout import apply_text_layout
+    from text_layout import apply_text_layout, fit_category_axis
     cfg = copy.deepcopy(cfg)
     cfg["rows"] = canonical_numbers(cfg["rows"])
     options = {key: cfg[key] for key in OPTION_KEYS if key in cfg}
@@ -238,6 +238,9 @@ def build_pair(kind, cfg):
     full["config"] = {"view": {"stroke": None}}
     full["background"] = cfg["style"].get("facecolor", "white")
     full = apply_text_layout(apply_presentation(full, cfg))
+    if kind == "boxplot" and cfg.get("sampling", {}).get("text_profile") == "expanded-v1":
+        channel = "y" if options["orientation"] == "horizontal" else "x"
+        fit_category_axis(full, channel, [row["category"] for row in rows])
     colors = list(cfg["style"]["series_colors"])
     if len(colors) < len(rows):
         colors += ["#b279a2", "#ff9da6", "#9d755d", "#bab0ac", "#59a14f", "#edc949"]

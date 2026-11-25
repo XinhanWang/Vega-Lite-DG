@@ -102,8 +102,10 @@ function radarSpec(index, item) {
   const names = (item?.words?.series ?? (isChinese(item) ? ['方案甲', '方案乙', '方案丙', '方案丁']
     : ['Group A', 'Group B', 'Group C', 'Group D'])).slice(0, item?.choices.series_count ?? (1 + index % 3));
   const multiple = names.length > 1;
+  const radialMax = item?.choices.radial_max ?? 100;
   const rows = categories.flatMap(category => names.map(series => ({
-    category, value: rand(23, 96), ...(multiple ? {series} : {}),
+    category, value: Number((rand(23, 96) * radialMax / 100).toPrecision(4)),
+    ...(multiple ? {series} : {}),
   })));
   return {
     title: item?.words?.title ?? baseTitle,
@@ -111,7 +113,7 @@ function radarSpec(index, item) {
     mark: {type: 'line'},
     encoding: {
       x: {field: 'category', type: 'nominal', sort: categories},
-      y: {field: 'value', type: 'quantitative', title: isChinese(item) ? '得分' : 'Score', scale: {domain: [0, 100]}},
+      y: {field: 'value', type: 'quantitative', title: isChinese(item) ? '得分' : 'Score', scale: {domain: [0, radialMax]}},
       ...(multiple ? {
         color: {field: 'series', type: 'nominal'},
       } : {}),
@@ -175,16 +177,25 @@ function projectRadar(targets) {
   return views;
 }
 
-function fullRadar(compact, drawing, item) {
+function prepareRadarPreview(compact, drawing, item) {
   const rows = drawing.data.find(source => source.name === 'observations').values;
   const keys = rows => rows.map(({category, value, series}) => JSON.stringify([category, value, series])).sort();
   assert.deepEqual(keys(rows), keys(compact.data.values));
+  const [minimum, maximum] = compact.encoding.y.scale.domain;
   for (const row of rows) {
-    assert(Math.abs(Math.hypot(row.__px - 250, row.__py - 235) - 1.8 * row.value) < 1e-8);
+    const expected = 180 * (row.value - minimum) / (maximum - minimum);
+    assert(Math.abs(Math.hypot(row.__px - 250, row.__py - 235) - expected) < 1e-8);
   }
   if (!compact.encoding.color) {
     drawing.marks = drawing.marks.filter(mark => mark.from?.data !== 'legend');
   }
+  if (isChinese(item)) {
+    drawing.config = {...drawing.config, text: {...drawing.config?.text, font: fontName}};
+  }
+  return drawing;
+}
+
+function fullRadar(drawing, item) {
   drawing.background = item ? appearance(item).background : '#ffffff';
   if (item) {
     const style = appearance(item);
@@ -223,26 +234,25 @@ const manifest = [];
 fs.mkdirSync(output);
 write(path.join(output, 'config.json'), config);
 
-async function render(kind, index, compact, full, compiled, item) {
-  const id = `${kind}-${String(index).padStart(6, '0')}`;
-  const relative = `samples/${id}`;
-  const directory = path.join(output, relative);
+async function renderImage(compiled, compact, item, id) {
   const view = new vega.View(vega.parse(compiled), {renderer: 'none', logLevel: vega.Warn});
   let svg;
   try {
     await view.runAsync();
     if (item?.words) {
+      const unwrapped = value => (Array.isArray(value) ? value.join('') : value).replace(/\s+/gu, '');
       const visible = new Set();
       function collect(node) {
-        if (node.mark?.marktype === 'text' && node.opacity !== 0 && typeof node.text === 'string') {
-          visible.add(node.text);
+        if (node.mark?.marktype === 'text' && node.opacity !== 0
+            && (typeof node.text === 'string' || Array.isArray(node.text))) {
+          visible.add(unwrapped(node.text));
         }
         for (const child of node.items ?? []) collect(child);
       }
       collect(view.scenegraph().root);
       const expected = new Set([compact.title,
         ...tableRows(compact).flatMap(row => [row.category, row.series]).filter(Boolean)]);
-      for (const text of expected) assert(visible.has(text), `Visible text missing for ${id}: ${text}`);
+      for (const text of expected) assert(visible.has(unwrapped(text)), `Visible text missing for ${id}: ${text}`);
     }
     svg = await view.toSVG();
   } finally {
@@ -256,6 +266,15 @@ async function render(kind, index, compact, full, compiled, item) {
   if (isChinese(item)) assert(svg.includes(fontName), 'Missing Chinese face in SVG');
   const png = new Resvg(svg, {fitTo: {mode, value: config.target_side}, ...(font ? {font} : {})}).render().asPng();
   assert(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
+  return {svg, png};
+}
+
+async function render(kind, index, compact, full, compiled, preview, item) {
+  const id = `${kind}-${String(index).padStart(6, '0')}`;
+  const relative = `samples/${id}`;
+  const directory = path.join(output, relative);
+  const {svg, png} = await renderImage(compiled, compact, item, id);
+  const compactImage = await renderImage(preview, compact, item, id + ' preview');
   fs.mkdirSync(directory, {recursive: true});
   const fullName = kind === 'radar' ? 'full.vega.json' : 'full.vl.json';
   write(path.join(directory, fullName), full);
@@ -263,8 +282,11 @@ async function render(kind, index, compact, full, compiled, item) {
   writeTables(directory, compact);
   fs.writeFileSync(path.join(directory, 'chart.svg'), svg);
   fs.writeFileSync(path.join(directory, 'chart.png'), png);
+  fs.writeFileSync(path.join(directory, 'compact.svg'), compactImage.svg);
+  fs.writeFileSync(path.join(directory, 'compact.png'), compactImage.png);
   const entry = {id, kind, status: 'accepted', sample: relative, image: `${relative}/chart.png`,
     full: `${relative}/${fullName}`, compact: `${relative}/compact.vl.json`,
+    compact_image: `${relative}/compact.png`,
     observations: tableRows(compact).length, svg_sha256: createHash('sha256').update(svg).digest('hex'),
     png_sha256: createHash('sha256').update(png).digest('hex')};
   if (item) entry.sampling = {...item.sample, ...item.choices};
@@ -275,10 +297,50 @@ async function render(kind, index, compact, full, compiled, item) {
   ]});
 }
 
+function fitCombinationXAxis(spec, compact) {
+  const categories = [...new Set(tableRows(compact).map(row => row.category))];
+  const fontSize = spec.config?.axis?.labelFontSize ?? 10;
+  const measure = text => Array.from(text).reduce((width, char) =>
+    width + (/\p{Script=Han}/u.test(char) ? fontSize : .8 * fontSize), 0);
+  const labels = categories.map(category => String(category).split(/\s+/u));
+  const gap = 12;
+  const longestWord = Math.max(...labels.flat().map(measure));
+  spec.width = Math.max(spec.width, Math.ceil(categories.length * (longestWord + gap)));
+  const available = spec.width / categories.length - gap;
+  const display = Object.fromEntries(labels.map((words, index) => {
+    const lines = [''];
+    for (const word of words) {
+      const last = lines.at(-1);
+      const joined = last ? last + ' ' + word : word;
+      if (last && measure(joined) > available) lines.push(word);
+      else lines[lines.length - 1] = joined;
+    }
+    return [categories[index], lines.length > 1 ? lines : lines[0]];
+  }));
+  spec.encoding.x.axis = {...spec.encoding.x.axis,
+    labelAngle: 0, labelAlign: 'center', labelBaseline: 'top', labelPadding: 5,
+    labelExpr: '(' + JSON.stringify(display) + ')[toString(datum.value)]',
+    labelLineHeight: Math.ceil(fontSize * 1.25),
+    labelLimit: 0, labelOverlap: false, labelBound: false, minExtent: 0, titlePadding: 5};
+}
+
+function compileCombination(spec) {
+  const warnings = [];
+  const logger = vega.logger(vega.Warn, (_, level, ...messages) => warnings.push([level, ...messages]));
+  const compiled = vl.compile(spec, {logger}).spec;
+  assert.deepEqual(warnings, [], 'Vega-Lite reported a compilation diagnostic');
+  return compiled;
+}
+
 async function renderCombination(index, item) {
   const compact = combinationSpec(index, item);
   const style = appearance(item);
   const full = {$schema: schema, ...plain(renderSpec(compact)), width: 510, height: 290, background: '#ffffff'};
+  const preview = plain(full);
+  if (isChinese(item)) {
+    preview.config = {...preview.config, font: fontName, title: {fontWeight: 400}};
+  }
+  fitCombinationXAxis(preview, compact);
   if (item) {
     full.width = Math.round(full.height * (item.sample.aspect_ratio ?? 1.76));
     full.background = style.background;
@@ -288,6 +350,7 @@ async function renderCombination(index, item) {
       axis:{labelColor:style.text,titleColor:style.text,gridColor:style.grid},
       legend:{labelColor:style.text,titleColor:style.text},
       range:{category:style.colors}};
+    if (item.words) fitCombinationXAxis(full, compact);
     if (item.sample.value_labels) {
       const annotation = {mark:{type:'text', dy:-5, baseline:'bottom', color:style.text, fontSize:10},
         encoding:{text:{field:'value',type:'nominal'}}};
@@ -296,11 +359,8 @@ async function renderCombination(index, item) {
     }
   }
   assert.deepEqual(tableRows(full), tableRows(compact));
-  const warnings = [];
-  const logger = vega.logger(vega.Warn, (_, level, ...messages) => warnings.push([level, ...messages]));
-  const compiled = vl.compile(full, {logger}).spec;
-  assert.deepEqual(warnings, [], 'Vega-Lite reported a compilation diagnostic');
-  await render('combination', index, compact, full, compiled, item);
+  assert.deepEqual(tableRows(preview), tableRows(compact));
+  await render('combination', index, compact, full, compileCombination(full), compileCombination(preview), item);
 }
 for (let start = 0; start < radar; start += batchSize) {
   const items = planBatch('radar', start, Math.min(batchSize, radar - start));
@@ -308,8 +368,9 @@ for (let start = 0; start < radar; start += batchSize) {
   const views = projectRadar(targets);
   for (const [offset, compact] of targets.entries()) {
     const item = items[offset];
-    const drawing = fullRadar(compact, views[offset], item);
-    await render('radar', start + offset, compact, drawing, drawing, item);
+    const preview = prepareRadarPreview(compact, views[offset], item);
+    const drawing = fullRadar(plain(preview), item);
+    await render('radar', start + offset, compact, drawing, drawing, preview, item);
   }
 }
 for (let start = 0; start < combination; start += batchSize) {

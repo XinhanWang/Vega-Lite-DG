@@ -69,7 +69,7 @@ def validate(out):
             full, compact = read(sample / 'full.vl.json'), read(sample / 'compact.vl.json')
             preview = read(sample / 'compact.preview.vl.json')
             validate_target(compact)
-            if preview != render_spec(compact):
+            if preview != render_spec(compact, fit_boxplot=row.get('sampling', {}).get('text_profile') == 'expanded-v1'):
                 errors.append('Compact preview differs from deterministic rendering projection')
             if preview['data'] != compact['data']:
                 errors.append('Compact preview changed the training observations')
