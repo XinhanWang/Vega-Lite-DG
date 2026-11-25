@@ -238,7 +238,8 @@ def apply_presentation(full: dict, cfg: dict) -> dict:
                 continue
             from adapter import _label_expr
             native_values, native_labels = axes_source.get(f"{axis}ticks"), axes_source.get(f"{axis}ticklabels")
-            if native_values is not None and native_labels is not None and len(native_values) == len(native_labels) and guide.get("values") == native_values:
+            if ("format" not in guide and native_values is not None and native_labels is not None
+                    and len(native_values) == len(native_labels) and guide.get("values") == native_values):
                 guide.update(labelExpr=_label_expr(native_values, native_labels), labelOverlap=False)
             ticks = ticks_source.get(axis, {})
             length = float(ticks.get("length", style.get("tick_length", 3.5)))

@@ -83,7 +83,7 @@ def _axes(rng, kind, cfg, controls):
         shared = tick()
         axes['tick_styles'] = {'x': dict(shared), 'y': dict(shared)}
     elif kind in {'barv_stack', 'barh_stack'}:
-        axes['tick_styles'] = {'x': tick(), 'y': tick((3, 4))}
+        axes['tick_styles'] = {'x': tick(), 'y': tick((3, 4), direction='out' if kind == 'barh_stack' else None)}
     elif kind.startswith('barh'):
         axes['tick_styles'] = {'x': tick(max_width=1.3), 'y': tick((3, 4), direction='out')}
     elif kind.startswith('barv'):
@@ -97,7 +97,7 @@ def _axes(rng, kind, cfg, controls):
 
 def sample_horizontal_stack(seed, controls=None):
     """Sample ordinary horizontal stacks by transposing the vertical stack rules."""
-    c = dict(controls or {})
+    c = normalize_controls('barh_stack', controls)
     c['stack_mode'] = 'absolute'
     cfg, rng = sample_parameters('barv_stack', seed, c)
     # The matrix and cumulative left endpoints remain exact source numbers.
@@ -169,7 +169,7 @@ def sample_config(kind, seed, controls=None):
             else: cfg['hatches'] = [c['hatch']]*series
         # Exact-percent is an explicit native control; upstream's natural
         # percent stacks retain their original independently rounded segments.
-        if kind in {'barv_stack', 'barh_stack'} and c.get('stack_mode') == 'percent':
+        if kind == 'barv_stack' and c.get('stack_mode') == 'percent':
             matrix = np.asarray(cfg['matrix'],dtype=float)
             for i in range(count):
                 matrix[int(np.argmax(matrix[:,i])),i] += 100-float(matrix[:,i].sum())
