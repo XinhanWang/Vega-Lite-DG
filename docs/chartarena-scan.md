@@ -3,6 +3,8 @@
 `configs/chartarena-scan.json` 用于柱图、折线图、散点图、饼图和箱线图。
 `configs/chartarena-scan-extensions.json` 用于雷达图和柱线组合图。
 
+雷达图训练 GT 使用 `mark: {"type": "line"}` 和 `usermeta.chartType: "radar"`。多系列时用 `encoding.color` 区分系列。真实极坐标预览继续使用 Full Vega 规格。
+
 ```sh
 python3 bootstrap.py --with-cjk
 python3 pipeline.py generate --config configs/chartarena-scan.json --output runs/scan-native

@@ -108,12 +108,11 @@ function radarSpec(index, item) {
   return {
     title: item?.words?.title ?? baseTitle,
     data: {values: rows},
-    mark: {type: 'bar'},
+    mark: {type: 'line'},
     encoding: {
       x: {field: 'category', type: 'nominal', sort: categories},
       y: {field: 'value', type: 'quantitative', title: isChinese(item) ? '得分' : 'Score', scale: {domain: [0, 100]}},
       ...(multiple ? {
-        xOffset: {field: 'series', type: 'nominal'},
         color: {field: 'series', type: 'nominal'},
       } : {}),
     },
