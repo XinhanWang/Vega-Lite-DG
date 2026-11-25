@@ -84,11 +84,11 @@ def validate(policy, kinds):
                             choices.update({"series_count": set(range(1, 9)),
                                             "category_count": set(range(4, 37)),
                                             "variant": {"line", "filled", "polar_bar", "stacked_polar_bar"},
-                                            "layout": {"overlay", "faceted"}, "closed": {True, False},
+                                            "layout": {"overlay"}, "closed": {True, False},
                                             "grid": {"polygon", "circle"}, "rotation": {-90, -60, 0, 30},
                                             "tick_count": {3, 4, 5, 6, 8}, "point": {True, False},
                                             "dashed": {True, False}, "stroke_width": {1, 1.5, 2, 2.5, 3},
-                                            "per_dimension_scale": {True, False},
+                                            "per_dimension_scale": {False},
                                             "data_pattern": {"random", "correlated", "peaked", "spiky", "smooth", "flat"}} if target == "radar"
                                            else {"dual_axis": {True, False}})
                             if field not in choices or value not in choices[field]:

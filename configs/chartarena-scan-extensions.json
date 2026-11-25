@@ -104,10 +104,6 @@
           {"value": 2.5, "weight": 20},
           {"value": 3, "weight": 5}
         ],
-        "per_dimension_scale": [
-          {"value": true, "weight": 8},
-          {"value": false, "weight": 92}
-        ],
         "data_pattern": [
           {"value": "random", "weight": 20},
           {"value": "correlated", "weight": 24},
@@ -115,10 +111,6 @@
           {"value": "spiky", "weight": 18},
           {"value": "smooth", "weight": 14},
           {"value": "flat", "weight": 6}
-        ],
-        "layout": [
-          {"value": "overlay", "weight": 90},
-          {"value": "faceted", "weight": 10}
         ],
         "closed": [
           {"value": true, "weight": 90},

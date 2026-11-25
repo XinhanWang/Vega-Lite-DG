@@ -15,7 +15,8 @@ class RadarRenderTests(unittest.TestCase):
     def test_expanded_scan_controls_are_accepted(self):
         policy = json.loads((ROOT / 'configs/chartarena-scan-extensions.json').read_text())['sampling']
         validate(policy, EXTENSIONS)
-        for field, value in [('category_count', 37), ('series_count', 9), ('variant', 'unknown'), ('radial_max', 0)]:
+        for field, value in [('category_count', 37), ('series_count', 9), ('variant', 'unknown'),
+                             ('radial_max', 0), ('layout', 'faceted'), ('per_dimension_scale', True)]:
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate({'weighted': {'radar': {field: [{'value': value, 'weight': 1}]}}}, EXTENSIONS)
 
@@ -25,18 +26,26 @@ class RadarRenderTests(unittest.TestCase):
             self.skipTest('Node is required for radar target rendering')
         program = r'''
 import assert from 'node:assert/strict';
-import {renderRadarTarget} from './radar_render.mjs';
+import {renderRadarSource} from './radar_render.mjs';
 import {pngAt200Dpi} from './png_metadata.mjs';
+import {writeTables} from './export_tables.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 for (const variant of ['line', 'filled', 'polar_bar', 'stacked_polar_bar']) {
   for (const count of [4, 12, 24, 36]) {
     const categories = Array.from({length: count}, (_, i) => 'Dimension ' + i);
     const rows = categories.flatMap(category => [
       {category, series: 'A', value: 2}, {category, series: 'B', value: 3}]);
-    const compact = {title: 'Radar test', data: {values: rows}, mark: {type: 'line', point: true},
-      encoding: {x: {sort: categories}, y: {scale: {domain: [0, 10]}}},
-      usermeta: {chartType: 'radar', radar: {variant, grid: 'circle', rotation: -90, tickCount: 5}}};
+    const compact = {title: 'Radar test', data: {values: rows}, mark: {type: 'line'},
+      encoding: {x: {field: 'category', type: 'nominal', sort: categories},
+        y: {field: 'value', type: 'quantitative', scale: {domain: [0, 10]}},
+        color: {field: 'series', type: 'nominal'}},
+      usermeta: {chartType: 'radar'}};
+    const options = {variant, grid: 'circle', rotation: -90, tickCount: 5, point: true,
+      strokeWidth: 2, strokeDash: []};
     const before = JSON.stringify(compact);
-    const drawing = renderRadarTarget(compact);
+    const drawing = renderRadarSource(compact, options);
     assert.equal(JSON.stringify(compact), before);
     const points = drawing.data.find(d => d.name === 'observations').values;
     assert.deepEqual(points.map(({category, series, value}) => ({category, series, value})), rows);
@@ -44,21 +53,22 @@ for (const variant of ['line', 'filled', 'polar_bar', 'stacked_polar_bar']) {
     assert.equal(points[0].__outer, radius * .2);
     assert.equal(points[1].__outer, radius * (variant === 'stacked_polar_bar' ? .5 : .3));
     assert.equal(points[1].__inner, variant === 'stacked_polar_bar' ? radius * .2 : 0);
-    compact.usermeta.radar.dimensionDomains = Object.fromEntries(categories.map(c => [c, [0, 20]]));
-    assert.equal(renderRadarTarget(compact).data[0].values[0].__outer, radius * .1);
-    compact.data.values[0].value = 21;
-    assert.throws(() => renderRadarTarget(compact), /domain/);
+    assert.equal(drawing.data.filter(d => d.name === 'observations').length, 1);
+    if (variant === 'line' && count === 4) {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'radar-tables-'));
+      try {
+        writeTables(directory, compact);
+        assert.equal(fs.readFileSync(path.join(directory, 'data.md'), 'utf8').split('\n').length,
+          rows.length + 2);
+        assert.equal(JSON.stringify(compact), before);
+      } finally {
+        fs.rmSync(directory, {recursive: true});
+      }
+    }
+    compact.data.values[0].value = 11;
+    assert.throws(() => renderRadarSource(compact, options), /domain/);
   }
 }
-const categories = ['North', 'East', 'South', 'West'];
-const panelRows = categories.flatMap(category => ['A', 'B', 'C'].map(series => ({category, series, value: 3})));
-const panels = renderRadarTarget({title: 'Panels', mark: {type: 'line'}, data: {values: panelRows},
-  encoding: {x: {sort: categories}, y: {scale: {domain: [0, 10]}}},
-  usermeta: {radar: {variant: 'line', layout: 'faceted', grid: 'polygon', rotation: 0, tickCount: 4}}});
-assert.equal(panels.marks.length, 3);
-assert.equal(panels.data[0].values.length, panelRows.length);
-const legacyView = {marks: []};
-assert.equal(renderRadarTarget({usermeta: {}}, legacyView), legacyView);
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG0YAAAAASUVORK5CYII=', 'base64');
 const tagged = pngAt200Dpi(png);
 assert.deepEqual(pngAt200Dpi(tagged), tagged);

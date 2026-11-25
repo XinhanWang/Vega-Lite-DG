@@ -6,28 +6,8 @@ const color = {scale: 'color', field: '__series'};
 const measure = text => Array.from(String(text)).reduce((sum, ch) =>
   sum + (/\p{Script=Han}/u.test(ch) ? 1 : .65), 0);
 
-/** Render the explicit radar representation in a training target. */
-export function renderRadarTarget(compact, adapterView) {
-  const options = compact.usermeta?.radar;
-  if (!options) return adapterView;
-  if (options.layout === 'faceted') {
-    const keys = [...new Set(compact.data.values.map(row => row.series ?? ''))];
-    if (keys.length > 1) {
-      const panels = keys.map(key => renderRadarTarget({...compact, title: key,
-        data: {values: compact.data.values.filter(row => (row.series ?? '') === key)},
-        usermeta: {...compact.usermeta, radar: {...options, layout: 'overlay'}}}, adapterView));
-      const columns = Math.min(2, panels.length);
-      const panelWidth = Math.max(...panels.map(panel => panel.width)) + 100;
-      const panelHeight = Math.max(...panels.map(panel => panel.height)) + 80;
-      return {$schema: panels[0].$schema, title: compact.title,
-        width: panelWidth * columns, height: panelHeight * Math.ceil(panels.length / columns), padding: 35,
-        data: [{name: 'observations', values: panels.flatMap(panel => panel.data[0].values)}],
-        marks: panels.map((panel, i) => ({type: 'group', encode: {enter: {
-          x: value(i % columns * panelWidth + 45), y: value(Math.floor(i / columns) * panelHeight + 30),
-          width: value(panel.width), height: value(panel.height)}},
-          title: {text: keys[i], fontSize: 14}, data: panel.data, scales: panel.scales, marks: panel.marks}))};
-    }
-  }
+/** Draw the synthetic source image with its sampled presentation settings. */
+export function renderRadarSource(compact, options) {
   const categories = compact.encoding.x.sort;
   const rows = compact.data.values;
   const series = [...new Set(rows.map(row => row.series ?? ''))];
@@ -37,9 +17,8 @@ export function renderRadarTarget(compact, adapterView) {
   const center = radius + 35;
   const rotation = options.rotation * Math.PI / 180;
   const angleFor = i => rotation + i * Math.PI * 2 / count;
-  const domainFor = category => options.dimensionDomains?.[category] ?? domain;
-  const radialPosition = (number, category) => {
-    const [minimum, maximum] = domainFor(category);
+  const [minimum, maximum] = domain;
+  const radialPosition = number => {
     assert(number >= minimum - 1e-8 && number <= maximum + 1e-8, 'Radar data exceeds its domain');
     return radius * (number - minimum) / (maximum - minimum);
   };
@@ -51,8 +30,8 @@ export function renderRadarTarget(compact, adapterView) {
       const row = rows.find(row => row.category === categories[i] && (row.series ?? '') === series[s]);
       assert(row, 'Each series requires one row per radar dimension');
       const outerValue = stacked ? cumulative + row.value : row.value;
-      const outer = radialPosition(outerValue, row.category);
-      const inner = stacked ? radialPosition(cumulative, row.category) : 0;
+      const outer = radialPosition(outerValue);
+      const inner = stacked ? radialPosition(cumulative) : 0;
       const angle = angleFor(i);
       const halfWidth = Math.PI / count * .78;
       const groupedWidth = halfWidth * 2 / series.length;
@@ -89,17 +68,12 @@ export function renderRadarTarget(compact, adapterView) {
       align: Math.abs(cos) < .1 ? 'center' : left ? 'right' : 'left',
       angle: dense ? degrees + (left ? 180 : 0) : 0};
   });
-  const ticks = [];
-  const axes = options.dimensionDomains ? categories : [categories[0]];
-  for (const category of axes) {
-    const angle = options.dimensionDomains ? angleFor(categories.indexOf(category)) : rotation;
-    const [minimum, maximum] = domainFor(category);
-    for (let j = 1; j <= options.tickCount; j++) {
-      const r = radius * j / options.tickCount;
-      ticks.push({x: center + r * Math.cos(angle) + 5, y: center + r * Math.sin(angle) - 3,
-        label: String(Number((minimum + (maximum - minimum) * j / options.tickCount).toPrecision(4)))});
-    }
-  }
+  const ticks = Array.from({length: options.tickCount}, (_, i) => {
+    const fraction = (i + 1) / options.tickCount;
+    const r = radius * fraction;
+    return {x: center + r * Math.cos(rotation) + 5, y: center + r * Math.sin(rotation) - 3,
+      label: String(Number((minimum + (maximum - minimum) * fraction).toPrecision(4)))};
+  });
   const legendWidth = Math.max(120, ...series.map(name => measure(name) * 12 + 30));
   const legendColumns = Math.max(1, Math.min(3, Math.floor(center * 2 / legendWidth)));
   const legend = series.filter(Boolean).map((name, i) => ({__series: name, label: name,
@@ -113,7 +87,6 @@ export function renderRadarTarget(compact, adapterView) {
       {type: 'line', from: {data: 'ring'}, sort: {field: 'order'}, encode: {enter: {
         x: field('x'), y: field('y'), interpolate: value('linear-closed'), stroke: value('#dddddd')}}}]}];
   const polarBar = options.variant === 'polar_bar' || stacked;
-  const mark = compact.mark;
   const dataMarks = polarBar
     ? [{type: 'arc', from: {data: 'observations'}, encode: {enter: {
       x: value(center), y: value(center), innerRadius: field('__inner'), outerRadius: field('__outer'),
@@ -122,9 +95,9 @@ export function renderRadarTarget(compact, adapterView) {
     : [{type: 'group', from: {facet: {name: 'series', data: 'observations', groupby: '__series'}}, marks: [
       {type: 'line', from: {data: 'series'}, sort: {field: '__order'}, encode: {enter: {
         x: field('__px'), y: field('__py'), interpolate: value(options.closed === false ? 'linear' : 'linear-closed'), stroke: color,
-        strokeWidth: value(mark.strokeWidth ?? 2), strokeDash: value(mark.strokeDash ?? []),
+        strokeWidth: value(options.strokeWidth), strokeDash: value(options.strokeDash),
         fill: color, fillOpacity: value(options.variant === 'filled' ? .22 : 0)}}}]}];
-  if (mark.point && !polarBar) dataMarks.push({type: 'symbol', from: {data: 'observations'}, encode: {enter: {
+  if (options.point && !polarBar) dataMarks.push({type: 'symbol', from: {data: 'observations'}, encode: {enter: {
     x: field('__px'), y: field('__py'), fill: color, size: value(count > 20 ? 18 : 35)}}});
   if (options.valueLabels) dataMarks.push({type: 'text', from: {data: 'observations'}, encode: {enter: {
     x: field('__px'), y: field('__py'), dy: value(-7), text: field('__label'),

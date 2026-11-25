@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {writeTables} from './export_tables.mjs';
 import {pngAt200Dpi} from './png_metadata.mjs';
-import {renderRadarTarget} from './radar_render.mjs';
+import {renderRadarSource} from './radar_render.mjs';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
@@ -108,9 +108,6 @@ function radarSpec(index, item) {
   const radialMax = item?.choices.radial_max ?? 100;
   const variant = item?.choices.variant;
   const dataPattern = item?.choices.data_pattern ?? 'random';
-  const dimensionDomains = item?.choices.per_dimension_scale
-    ? Object.fromEntries(categories.map(category => [category, [0, radialMax * [1, .5, 2, 10][rand(0, 3)]]]))
-    : undefined;
   const baselines = variant ? categories.map(() => rand(30, 80)) : [];
   const fractions = categories.map((category, i) => names.map((_, s) => {
     const angle = i / categories.length * Math.PI * 2;
@@ -125,31 +122,30 @@ function radarSpec(index, item) {
     return variant ? patterns[dataPattern]() : rand(23, 96);
   }));
   const rows = categories.flatMap((category, i) => names.map((series, s) => {
-    const maximum = dimensionDomains?.[category][1] ?? radialMax;
     const divisor = variant === 'stacked_polar_bar' ? fractions[i].reduce((a, b) => a + b, 0) / (.15 + .8 * Math.max(...fractions[i]) / 100) : 100;
-    return {category, value: Number((fractions[i][s] * maximum / divisor).toPrecision(4)),
+    return {category, value: Number((fractions[i][s] * radialMax / divisor).toPrecision(4)),
       ...(multiple ? {series} : {})};
   }));
   const radar = variant ? {
     variant, grid: item.choices.grid ?? 'polygon', rotation: item.choices.rotation ?? -90,
-    layout: item.choices.layout ?? 'overlay', closed: variant === 'line' ? item.choices.closed ?? true : true,
+    closed: variant === 'line' ? item.choices.closed ?? true : true,
     tickCount: item.choices.tick_count ?? 5, valueLabels: Boolean(item.sample.value_labels),
-    ...(dimensionDomains ? {dimensionDomains} : {}),
+    point: item.choices.point ?? false,
+    strokeWidth: item.choices.stroke_width ?? 2,
+    strokeDash: item.choices.dashed ? [6, 3] : [],
   } : undefined;
-  return {
+  const compact = {
     title: item?.words?.title ?? baseTitle,
     data: {values: rows},
-    mark: {type: 'line', ...(variant ? {point: item.choices.point ?? false,
-      strokeWidth: item.choices.stroke_width ?? 2,
-      ...(item.choices.dashed ? {strokeDash: [6, 3]} : {})} : {})},
+    mark: {type: 'line'},
     encoding: {
       x: {field: 'category', type: 'nominal', sort: categories},
       y: {field: 'value', type: 'quantitative', title: isChinese(item) ? '得分' : 'Score', scale: {domain: [0, radialMax]}},
       ...(multiple ? {color: {field: 'series', type: 'nominal'}} : {}),
     },
-    usermeta: {chartType: 'radar', ...(radar ? {radar} : {}),
-      table_export: {tables: [{id: 'data', path: '/data/values'}]}},
+    usermeta: {chartType: 'radar'},
   };
+  return {compact, radar};
 }
 
 const combinationThemes = [
@@ -199,7 +195,7 @@ function combinationSpec(index, item) {
 function projectRadar(targets) {
   const radarProjection = spawnSync('python3', ['-B', '-c',
     'import json,sys; from chart_gt_adapter.extensions import radar_to_vega; json.dump([radar_to_vega(s) for s in json.load(sys.stdin)],sys.stdout)'],
-    {input: JSON.stringify(targets.map(spec => ({...spec, usermeta: {chartType: 'radar'}}))),
+    {input: JSON.stringify(targets),
      cwd: adapterDirectory, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024});
   assert.equal(radarProjection.status, 0, radarProjection.stderr || String(radarProjection.error ?? 'Radar adapter failed'));
   const views = JSON.parse(radarProjection.stdout);
@@ -207,17 +203,10 @@ function projectRadar(targets) {
   return views;
 }
 
-function prepareRadarPreview(compact, drawing, item) {
+function prepareRadarDrawing(compact, drawing, item) {
   const rows = drawing.data.find(source => source.name === 'observations').values;
   const keys = rows => rows.map(({category, value, series}) => JSON.stringify([category, value, series])).sort();
   assert.deepEqual(keys(rows), keys(compact.data.values));
-  if (!compact.usermeta.radar) {
-    const [minimum, maximum] = compact.encoding.y.scale.domain;
-    for (const row of rows) {
-      const expected = 180 * (row.value - minimum) / (maximum - minimum);
-      assert(Math.abs(Math.hypot(row.__px - 250, row.__py - 235) - expected) < 1e-8);
-    }
-  }
   if (!compact.encoding.color) {
     drawing.marks = drawing.marks.filter(mark => mark.from?.data !== 'legend');
   }
@@ -262,6 +251,7 @@ function fullRadar(drawing, item) {
 }
 
 function tableRows(spec) {
+  if (spec.usermeta?.chartType === 'radar') return spec.data.values;
   return spec.usermeta.table_export.tables.flatMap(({path}) =>
     path.slice(1).split('/').reduce((node, key) => node[key], spec));
 }
@@ -402,13 +392,12 @@ async function renderCombination(index, item) {
 for (let start = 0; start < radar; start += batchSize) {
   const items = planBatch('radar', start, Math.min(batchSize, radar - start));
   const targets = items.map((item, offset) => radarSpec(start + offset, item));
-  const legacyIndices = targets.map((spec, index) => spec.usermeta.radar ? -1 : index).filter(index => index >= 0);
-  const legacyViews = legacyIndices.length ? projectRadar(legacyIndices.map(index => targets[index])) : [];
-  const views = targets.map((spec, index) => legacyViews[legacyIndices.indexOf(index)]);
-  for (const [offset, compact] of targets.entries()) {
+  const views = projectRadar(targets.map(({compact}) => compact));
+  for (const [offset, {compact, radar}] of targets.entries()) {
     const item = items[offset];
-    const preview = prepareRadarPreview(compact, renderRadarTarget(compact, views[offset]), item);
-    const drawing = fullRadar(plain(preview), item);
+    const preview = prepareRadarDrawing(compact, views[offset], item);
+    const original = radar ? prepareRadarDrawing(compact, renderRadarSource(compact, radar), item) : plain(preview);
+    const drawing = fullRadar(original, item);
     await render('radar', start + offset, compact, drawing, drawing, preview, item);
   }
 }
