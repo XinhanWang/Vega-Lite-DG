@@ -11,6 +11,7 @@
 !/bootstrap.py
 !/build_gallery.py
 !/generate_chartarena_extensions.mjs
+!/combination.mjs
 !/compact.py
 !/table_metadata.py
 !/export_tables.mjs

@@ -102,7 +102,8 @@ def generate(args):
             raise ValueError('generate --resume requires a generation run, not a projection/migration run')
         if previous.get('generator_version') != GENERATOR_VERSION or previous.get('contract') != CONTRACT:
             raise ValueError('Resume requires the same generator and GT contract; use reproject for a historical run')
-        if previous.get('projection_version') != PROJECTION_VERSION:
+        if (previous.get('projection_version') != PROJECTION_VERSION
+                or previous.get('precision_version') != PRECISION_VERSION):
             raise ValueError('Resume requires the same projection version; use reproject for a historical run')
         if previous['config_sha256'] != fingerprint:
             raise ValueError('Resume config differs from original run')
@@ -117,8 +118,9 @@ def generate(args):
                 records.append(read(sample / 'record.json'))
                 continue
             seed = task_seed(cfg['seed'], kind, index)
-            sampling, weighted = plan(kind, seed, cfg.get('sampling', {}))
-            controls = {**weighted, **cfg['controls'].get('all', {}), **cfg['controls'].get(kind, {})}
+            explicit = {**cfg['controls'].get('all', {}), **cfg['controls'].get(kind, {})}
+            sampling, controls = plan(kind, seed, cfg.get('sampling', {}), controls=explicit,
+                                      target_side=cfg['target_side'])
             task = {'id': sample_id, 'kind': kind, 'index': index, 'seed': seed, 'output': str(sample), 'controls': controls}
             if sampling:
                 task['sampling'] = sampling
@@ -174,7 +176,27 @@ def reproject(args):
         render_config = config
         if (target / 'presentation.native.json').is_file():
             render_config = {**config, '_render_axes': read(target / 'presentation.native.json')}
-        full, compact, source = build_pair(old['kind'], render_config, precision_v1=previous.get('precision_version') == PRECISION_VERSION)
+        precision_version = previous.get('precision_version')
+        observations = None
+        if precision_version == 1:
+            # Precision V1 is archived evidence. Use the actual plotted values
+            # for reprojection instead of rerunning its retired adaptive rounding.
+            saved_full = read(source_dir / 'full.vl.json')
+            if old['kind'] in {'pie', 'boxplot'}:
+                from statistical import project_rows, outlier_rows
+                observations = project_rows(saved_full)
+                if old['kind'] == 'boxplot':
+                    points = outlier_rows(saved_full)
+                    for observation in observations:
+                        observation['outliers'] = [point['value'] for point in points
+                                                  if point['category'] == observation['category']]
+            else:
+                observations = saved_full['data']['values']
+        full, compact, source = build_pair(old['kind'], render_config,
+                                           precision_v1=precision_version == PRECISION_VERSION,
+                                           observation_rows=observations)
+        if precision_version == 1:
+            full['usermeta']['precision_version'] = 1
         if normalize(full) != compact or normalize(compact) != compact:
             raise ValueError(f'Noncanonical compact: {old["id"]}')
         for name, value in [('full.vl.json', full), ('compact.vl.json', compact), ('source.json', source)]:

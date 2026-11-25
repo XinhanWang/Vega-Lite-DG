@@ -4,7 +4,11 @@
 
 折线每个系列保留真实路径顺序，允许系列之间交错。只在某一系列沿路径严格向画面左侧回退时输出 path_order，并在 encoding.order 绑定该字段。仅重复 X 不算回退；系列切换不算回退。冗余历史 path_order 在导出时省略。同 X 连接先后以 mark.order:false 保留。
 
-逆向数值 X 折线保留 scale.reverse:true，普通轴省略。连续 X 保留真实间距；对数轴保留真实数值与 scale.type:log，不提前对坐标取对数。离散 X 保留 ordinal；若路径有回退，x.sort 显式列出原横轴位置顺序（重名时列 x_id）；普通离散轴仍用 sort:null。
+折线支持离散 X / 连续 Y、连续 X / 离散 Y 和双连续轴。离散位置通道使用 `type: "nominal"` 和 `sort: null`，按记录首次出现顺序建立域。离散 X 遇到路径回退时，`x.sort` 显式列出原轴顺序，重名时使用 `x_id`。离散 Y 折线在没有 `path_order` 时使用 `mark.order: false`，保留输入路径顺序。旧折线的离散 `ordinal` 在规范化时迁移为 `nominal`。
+
+连续轴使用 `type: "quantitative"`，保留真实间距。逆向数值 X 保留 `scale.reverse: true`。对数轴保留真实数值和 `scale.type: "log"`。
+
+合成时可用 `x_mode: "categorical"` 或 `"temporal"` 生成离散 X，用 `y_mode: "categorical"` 生成连续 X、离散 Y，也可用 `x_mode: "numeric"` 生成双连续轴。
 
 path_order 只表示连接先后，不表示时间、速度或其他科学变量。数字与年份若是类别名不能擅自转换成连续坐标；没有图例不猜测系列名称；不合并重复点、不补零、不改变连接关系。像素证据与标注来源保存在工程文件。
 

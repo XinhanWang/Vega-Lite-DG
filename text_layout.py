@@ -92,7 +92,8 @@ def _wrap_mapping(guide: dict, pixels: float, size: float) -> list[Any]:
     return list(wrapped.values())
 
 
-def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: float = 240) -> dict:
+def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: float = 240,
+                      fit_dense_x: bool = False) -> dict:
     """Return a full spec with complete title/axis/legend display text.
 
     Known adapter label mappings are wrapped at word boundaries; arbitrary
@@ -151,6 +152,14 @@ def apply_text_layout(full: dict, *, min_padding: float = 16, max_label_width: f
                 count = len(mapping) if mapping else 0
                 wrap_width = min(max_label_width, max(100, width / max(1, count) - 14)) if channel_name == "x" else max_label_width
                 angled = channel_name == "x" and abs(float(axis.get("labelAngle", 0))) >= 10
+                if fit_dense_x and channel_name == "x" and count >= 6 and not angled:
+                    horizontal_space = count * (max(_width(label, size) for label in mapping.values()) + 14)
+                    if horizontal_space > max(width, 2.5 * height):
+                        # Keep dense labels parallel and size the plot using their line height.
+                        ratio = min(0.9, max(0.5, count * size * 1.25 / width))
+                        axis.update(labelAngle=-math.degrees(math.asin(ratio)),
+                                    labelAlign="right", labelBaseline="middle")
+                        angled = True
                 # Preserve the sampled rotation. Autosize includes the complete
                 # angled text; the conservative spacing uses text line height,
                 # not full word width projected onto x (parallel labels interleave).

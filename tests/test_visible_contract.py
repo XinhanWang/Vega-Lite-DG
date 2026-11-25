@@ -5,8 +5,10 @@ import copy
 import json
 import math
 from pathlib import Path
+import re
 import sys
 import unittest
+from xml.etree import ElementTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from adapter import KINDS, build_pair
@@ -104,6 +106,28 @@ class VisibleContractTests(unittest.TestCase):
                       else str(item['text']) for item in output['labels']]
             for label in labels:
                 self.assertIn(label, actual)
+
+    def test_nominal_y_preserves_rendered_path_and_axis_label_positions(self):
+        cfg = fixture('line_1')
+        cfg.update(y_mode='categorical', matrix=[['Idle', 'Active', 'Idle']])
+        for xs in ([1, 2, 3], [3, 1, 2]):
+            with self.subTest(xs=xs):
+                cfg['x_values'] = xs
+                full, target, _ = build_pair('line_1', cfg, precision_v1=True)
+                for rendered in render_specs([full, render_spec(target)]):
+                    self.assertEqual(rendered['warnings'], [])
+                    svg = ElementTree.fromstring(rendered['svg'])
+                    group = next(node for node in svg.iter()
+                                 if 'mark-line role-mark' in node.get('class', ''))
+                    path = next(node.attrib['d'] for node in group if 'd' in node.attrib)
+                    coordinates = [(float(x), float(y)) for x, y in
+                                   re.findall(r'[ML]([0-9.]+),([0-9.]+)', path)]
+                    self.assertEqual(len(coordinates), 3)
+                    pixels = [x for x, _ in coordinates]
+                    self.assertEqual([sorted(pixels).index(x) for x in pixels], [x - 1 for x in xs])
+                    ys = [y for _, y in coordinates]
+                    self.assertEqual(ys[0], ys[2])
+                    self.assertLess(ys[0], ys[1])
 
     def test_full_log_axes_render_without_scale_warnings(self):
         cases = []

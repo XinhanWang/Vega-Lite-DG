@@ -21,9 +21,9 @@ Pie 和 Box Plot 使用 `generation/summaries.py` 采样、`statistical.py` 构�
 均可独立渲染；字段、顺序和精度约定见 [统计图说明](docs/statistical-charts.md)。
 `configs/statistical-smoke.json` 和 `configs/statistical-diversity.json` 分别生成每类 20、100 张。
 
-保留了数据族、样式配置、字体、配色、误差棒、柱形纹理、标记/线型、非线性与反向轴、参考线、等比例散点布局、长文字布局和质量检查。折线支持类别、等间隔时间标签和数值 x。所有可选数据族列在 `generation/controls.py`，每个图族的公式位于 `generation/bars.py`、`lines.py` 或 `scatter.py`。
+保留了数据族、样式配置、字体、配色、误差棒、柱形纹理、标记/线型、非线性与反向轴、参考线、等比例散点布局、长文字布局和质量检查。折线支持离散 X、离散 Y 或双连续轴，等间隔时间标签按离散 X 表示。所有可选数据族列在 `generation/controls.py`，每个图族的公式位于 `generation/bars.py`、`lines.py` 或 `scatter.py`。
 
-**训练 GT 顺序按图型规范化。** 散点全图按画面从左到右、同 X 从上到下排序；录入和点击顺序不限。柱图保留类别及组内可见顺序，纵向堆叠从下到上、横向堆叠从左到右。折线保留每条线真实路径的先后，仅同一系列在画面中出现严格 X 回退时输出 path_order；重复 X 和系列切换不触发。逆向数值 X 折线保留 scale.reverse:true；有回退的离散 X 折线以显式 sort 数组保留横轴位置顺序（重名时绑定 x_id）。其余离散通道仍用 sort:null。
+**训练 GT 顺序按图型规范化。** 散点全图按画面从左到右、同 X 从上到下排序；录入和点击顺序不限。柱图保留类别及组内可见顺序，纵向堆叠从下到上、横向堆叠从左到右。折线保留每条线真实路径的先后，仅同一系列在画面中出现严格 X 回退时输出 path_order；重复 X 和系列切换不触发。逆向数值 X 折线保留 scale.reverse:true；有回退的离散 X 折线以显式 sort 数组保留横轴位置顺序（重名时绑定 x_id）。折线离散轴使用 type:nominal 和 sort:null，连续轴使用 type:quantitative。离散 Y 折线按记录顺序连线，有显式 path_order 时按该字段连线。
 
 类别/时间标签折线强制显示全部标签，历史配置里稀疏的 tick 子集不会删掉类别。没有图例时，每个系列按首次可见顺序命名为 `Series 1`、`Series 2`、`Series 3`……；单系列同样使用 `Series 1`，GT 保持图例隐藏。可见图例保留原名称。
 
@@ -45,10 +45,10 @@ python3 pipeline.py validate --output runs/my_smoke
 服务器 Node 位于父目录 `.runtime/node` 时，管线会自动使用它；也可以传 `--node /path/to/node`。在新环境安装旧版 PyYAML 5.4.1 如需源码构建，应准备相应编译依赖；已部署环境可直接复用。
 
 ```sh
-# ChartArena 数值图原生模板，每个模板 50 个候选；接受数量以 validation.json 为准
+# 通用数值图任务预设，每个配置图型 50 个候选
 python3 pipeline.py generate --config configs/production.json --output runs/my_production
 
-# 原 VSR 配置，保留原种子、采样设置和图表类型
+# 保留原种子和任务数量的 VSR 命名预设
 python3 pipeline.py generate --config configs/production_vsr.json --output runs/my_vsr
 
 # 相同版本、相同配置的断点恢复
@@ -58,18 +58,14 @@ python3 pipeline.py generate --config configs/production.json --output runs/my_p
 python3 pipeline.py reproject --source runs/old_run --output runs/reprojected
 ```
 
-ChartArena 的无后缀配置面向数值图的数字渲染场景。柱图和折线图复用当前数值采样器，
-并用清晰的显示风格和离散时间/类别标签。饼图和箱线图由原生统计模板生成。雷达和柱线
-复合图使用已同步的 Studio 和共享径向尺度雷达 adapter，每类各 50 张：
+原生与扩展生成器默认使用同一个通用多样性规划器。历史文件名继续作为任务预设。显式范围、任务权重和可复现规则见 [采样配置](docs/sampling-policy.md)。雷达和柱线组合由扩展生成器生成，默认各 50 张。
 
 ```sh
-../.runtime/node generate_chartarena_extensions.mjs configs/chartarena-extensions.json \
-  runs/my_chartarena_extensions ../Chart-Annotation-Studio /path/to/chart_gt_adapter_checkout
+node generate_chartarena_extensions.mjs configs/chartarena-extensions.json runs/my_chartarena_extensions
 ```
 
-雷达的 Full 使用 Vega，Compact 使用带 `usermeta.chartType` 的 Vega-Lite 语义代理。
-柱线复合图使用 Studio 的独立柱、线表，包含共享 Y 与独立双 Y。
-这些配置用于合成数字图像，未覆盖 ChartArena 的打印照片、手绘照片、流程图和思维导图。
+雷达的 Full 使用 Vega，Compact 保留 `usermeta.chartType: "radar"`、共享径向量程和 `encoding.y.title: null`。
+柱线组合图的 Compact 在顶层保存柱数据，在折线图层保存线数据。支持单柱单线、多柱单线、单柱多线和多柱多线。每种组合都支持共享 Y 或独立双 Y。扩展配置生成数字渲染图。结构、数值和表格路径详见 [ChartArena 扩展说明](docs/chartarena-scan.md)。
 
 每张训练图在 `compact.vl.json` 的 `usermeta.table_export.tables` 列出表 ID 和 JSON Pointer。共享转换器按这些路径分别写出 `<id>.md` 和 `<id>.csv`，保留轴标题替换。独立库及固定提交见 `vendor/vega-lite-table-export/UPSTREAM`。图中百分数存小数，仅标题含 `%` 时保留数值刻度原值。箱线图将五数统计和每个离群点分别存表，Full 和 Compact 均不写显式 `transform`。
 

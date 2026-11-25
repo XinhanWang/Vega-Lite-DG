@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from adapter import build_geometry_pair
-from compact import KINDS, normalize, project_rows, semantic_rows
+from compact import KINDS, normalize, project_rows, semantic_rows, validate_target
 from test_adapter import fixture
 
 
@@ -98,10 +98,53 @@ class CompactTests(unittest.TestCase):
             cfg.update(x_mode=mode, x_labels=labels)
             full = self.build("line_1", cfg)
             target = normalize(full)
-            self.assertEqual(target["encoding"]["x"]["type"], "ordinal")
+            self.assertEqual(target["encoding"]["x"]["type"], "nominal")
             self.assertIsNone(target["encoding"]["x"]["sort"])
             self.assertEqual(semantic_rows(target), project_rows(full))
             self.assertEqual([row["x"] for row in semantic_rows(target)], labels)
+
+    def test_nominal_y_line_keeps_numeric_x_values_and_input_path(self):
+        from compact_display import render_spec
+        cfg = fixture("line_1")
+        cfg.update(y_mode="categorical", matrix=[["Idle", "Active", "Idle"]])
+        for xs in ([1, 2, 3], [3, 1, 2]):
+            with self.subTest(xs=xs):
+                cfg["x_values"] = xs
+                target = normalize(self.build("line_1", cfg))
+                self.assertEqual([row["x"] for row in semantic_rows(target)], xs)
+                self.assertEqual([row["y"] for row in semantic_rows(target)], cfg["matrix"][0])
+                self.assertEqual(target["encoding"]["x"]["type"], "quantitative")
+                self.assertEqual(target["encoding"]["y"]["type"], "nominal")
+                self.assertIsNone(target["encoding"]["y"]["sort"])
+                if xs == [3, 1, 2]:
+                    self.assertEqual(target["encoding"]["order"]["field"], "path_order")
+                else:
+                    self.assertEqual(target["mark"], {"type": "line", "order": False})
+                preview = render_spec(target)
+                self.assertEqual(preview["encoding"]["y"]["axis"]["values"], ["Idle", "Active"])
+                self.assertEqual(preview["data"], target["data"])
+
+    def test_legacy_ordinal_migration_preserves_discrete_sort_and_explicit_order(self):
+        cfg = fixture("line_1")
+        cfg.update(x_mode="categorical", x_labels=["A", "B", "C"])
+        target = normalize(self.build("line_1", cfg))
+        legacy = copy.deepcopy(target)
+        legacy["encoding"]["x"]["type"] = "ordinal"
+        with self.assertRaisesRegex(ValueError, "discrete line axes must be nominal"):
+            validate_target(legacy)
+        self.assertEqual(normalize(legacy), target)
+        self.assertEqual(legacy["encoding"]["x"]["type"], "ordinal")
+
+        cfg = fixture("line_1")
+        cfg.update(y_mode="categorical", x_values=[3, 1, 2], matrix=[["a", "b", "a"]])
+        target = normalize(self.build("line_1", cfg))
+        legacy = copy.deepcopy(target)
+        legacy["encoding"]["y"]["type"] = "ordinal"
+        self.assertEqual(normalize(legacy), target)
+
+        point = normalize(self.build("scatter_1"))
+        point["encoding"]["x"].update(type="ordinal", sort=None)
+        self.assertEqual(normalize(point)["encoding"]["x"]["type"], "ordinal")
 
     def test_grouped_and_stacked_structure(self):
         for kind, offset in [("barh_n", "yOffset"), ("barv_n", "xOffset")]:

@@ -9,7 +9,7 @@ from collections import Counter
 import copy
 import json
 
-from compact import validate_target
+from compact import migrate_line_axes, validate_target
 from identity import migrate_spec
 from precision import PERCENT_SPECIFIER
 from statistical import target_kind
@@ -29,7 +29,7 @@ def vega_lite_spec(compact: dict) -> dict:
 
 def render_spec(compact: dict, *, fit_boxplot=False) -> dict:
     """Return a fresh Vega-Lite preview with identical observation data/order."""
-    compact = migrate_spec(compact)
+    compact = migrate_line_axes(migrate_spec(compact))
     validate_target(compact)
     result = vega_lite_spec(compact)
     rows = result["data"]["values"]

@@ -60,6 +60,19 @@ class TextLayoutTests(unittest.TestCase):
         self.assertEqual(result["encoding"]["x"]["axis"]["labelLimit"], 0)
         self.assertGreaterEqual(result["width"], source["width"])
 
+    def test_dense_horizontal_labels_rotate_without_expanding_the_plot_excessively(self):
+        source = long_text_fixture()
+        xs = source["encoding"]["x"]["axis"]
+        xs["values"] = list(range(14))
+        xs["labelExpr"] = label_expr({str(i): f"Category {i} with an extended description" for i in xs["values"]})
+        plain = apply_text_layout(source)
+        fitted = apply_text_layout(source, fit_dense_x=True)
+        axis = fitted["encoding"]["x"]["axis"]
+        self.assertLess(axis["labelAngle"], -10)
+        self.assertLess(fitted["width"], plain["width"])
+        self.assertEqual(axis["values"], xs["values"])
+        self.assertEqual(fitted["data"], source["data"])
+
     def test_numeric_tick_alias_prevents_empty_integer_float_label(self):
         source = {"mark": "point", "encoding": {"x": {"field": "x", "type": "quantitative",
                   "axis": {"values": [21.0], "labelExpr": label_expr({"21.0": "Complete twenty one"})}}}}

@@ -7,7 +7,7 @@ import re
 import numpy as np
 
 from . import GENERATOR_VERSION
-from .controls import FAMILIES
+from .controls import FAMILIES, PIE_LABEL_MODES
 from .style_rules import REQUIRED_FONT_FILES
 from .styles import canvas
 
@@ -79,7 +79,23 @@ def _box_observations(rng, family, mode):
     return observations
 
 
-def sample(rng, kind, controls):
+def pie_label_mode(value_mode, show_legend, preferred, show_values=None):
+    """Resolve compatible data, label and legend modes before styling."""
+    if value_mode not in {"percent", "absolute"} or type(show_legend) is not bool or preferred not in PIE_LABEL_MODES:
+        raise ValueError("Invalid pie data, label or legend mode")
+    if value_mode == "percent" and show_values is False:
+        return "none" if show_legend else "category"
+    if value_mode == "absolute" and preferred in {"none", "category"}:
+        return "legend_value" if show_legend else "category_value"
+    if not show_legend:
+        if preferred in {"legend_value", "value"}:
+            return "category_value"
+        if preferred == "none":
+            return "category"
+    return preferred
+
+
+def sample(rng, kind, controls, *, sampling=None):
     zero_count = controls.get("zero_count", 0)
     count = controls.get("category_count", rng.py.randint(max(2, zero_count + 1), 8))
     family = controls.get("family", rng.py.choice(FAMILIES[kind]))
@@ -121,8 +137,12 @@ def sample(rng, kind, controls):
                    hole_ratio=rng.py.choice((.35, .5, .6)), title=rng.py.choice(("Category share", "Allocation", "Market composition")))
         if "value_title" in controls:
             cfg["value_title"] = controls["value_title"]
-        if not cfg["show_legend"]:
-            cfg["label_mode"] = "category_value"
+        show_values = None
+        if mode == "percent" and "label_mode" not in controls:
+            show_values = (sampling or {}).get("value_labels")
+            if show_values is None:
+                show_values = rng.py.random() < .75
+        cfg["label_mode"] = pie_label_mode(mode, cfg["show_legend"], cfg["label_mode"], show_values)
         if count >= 7:
             cfg["size"] = max(cfg["size"], 640 if mode == "absolute" and cfg["label_mode"] == "value" else 520)
         cfg["rows"] = [dict(category=category, value=float(value)) for category, value in zip(categories, values)]

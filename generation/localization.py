@@ -123,8 +123,6 @@ def apply(cfg, kind, seed, sampling):
             width, height = style["figsize"]
             area = width * height
             style["figsize"] = [(area * ratio) ** .5, (area / ratio) ** .5]
-    if kind == "pie" and sampling.get("value_labels") is False:
-        cfg.update(label_mode="none", show_legend=True)
     percent_stack = kind.endswith("_stack") and cfg.get("stack_mode") == "percent"
     value_axis = "x_title" if kind.startswith("barh") else "y_title"
     if percent_stack:
